@@ -31,7 +31,7 @@ local COLORS = {
 -- ========== AUTOFARM SETTINGS ==========
 local FarmSettings = {
     Enabled = false,
-    VerticalOffset = 6,
+    VerticalOffset = 8,
     WaitSeconds = 14,
 }
 
