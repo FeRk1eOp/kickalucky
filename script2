@@ -134,7 +134,7 @@ local function farmLoop()
         task.wait(14)
 
         local currentChar = waitForCharacter()
-        smoothTeleportCharacter(currentChar, 6)   -- плавно за 2 секунды
+        smoothTeleportCharacter(currentChar, 10)   -- плавно за 2 секунды
 
         isCycling = false
     end
