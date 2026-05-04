@@ -1,4 +1,4 @@
--- Fer4ixz ScriptHub V28 – for Kick a Lucky Block (Brainrot AutoFarm) with mobile drag
+-- Fer4ixz ScriptHub V28 – Fully fixed for Kick a Lucky Block (Phone drag + farm status)
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -28,10 +28,9 @@ local COLORS = {
     Stroke = Color3.fromRGB(45,45,45),
 }
 
--- ========== AUTOFARM SETTINGS ==========
+-- ========== AUTOFARM ==========
 local FarmSettings = {
-    Enabled = false,
-    VerticalOffset = 8,
+    VerticalOffset = 6,
     WaitSeconds = 14,
 }
 
@@ -43,8 +42,9 @@ local isFarming = false
 local farmingThread = nil
 local firstRun = true
 
--- Callback to update GUI (will be set later)
-local updateFarmUICallback = nil
+-- GUI elements (to be set later)
+local farmToggleBtn = nil
+local farmStatusLabel = nil
 
 local function getTargetCFrame()
     return safePart.CFrame + Vector3.new(0, FarmSettings.VerticalOffset, 0)
@@ -118,6 +118,7 @@ local function waitForCharacter()
     return char
 end
 
+-- The actual farming loop
 local function farmCycle()
     while isFarming do
         local character = waitForCharacter()
@@ -135,13 +136,15 @@ local function farmCycle()
             continue
         end
 
+        -- Kick the Lucky Block
         local args = { [1] = 1 }
         rev_KickEvent:FireServer(unpack(args))
 
+        -- Wait for brainrot animation
         task.wait(FarmSettings.WaitSeconds)
 
         local currentChar = waitForCharacter()
-        smoothTeleportCharacter(currentChar, 7)
+        smoothTeleportCharacter(currentChar, 2)
 
         task.wait(0.5)
     end
@@ -155,13 +158,22 @@ local function setFarming(enabled)
         if farmingThread then coroutine.close(farmingThread) end
         farmingThread = coroutine.create(farmCycle)
         coroutine.resume(farmingThread)
-        notify("Brainrot AutoFarm ENABLED", false)
     else
         if farmingThread then coroutine.close(farmingThread); farmingThread = nil end
-        notify("Brainrot AutoFarm DISABLED", false)
     end
-    -- Update GUI if callback exists
-    if updateFarmUICallback then updateFarmUICallback(isFarming) end
+
+    -- Update GUI immediately
+    if farmToggleBtn and farmStatusLabel then
+        if isFarming then
+            farmToggleBtn.Text = "⏹ Disable Farm"
+            farmToggleBtn.BackgroundColor3 = Color3.fromRGB(180,0,0)
+            farmStatusLabel.Text = "Status: ● Enabled (working in Safe)"
+        else
+            farmToggleBtn.Text = "▶ Enable Farm"
+            farmToggleBtn.BackgroundColor3 = COLORS.Button
+            farmStatusLabel.Text = "Status: ○ Disabled"
+        end
+    end
 end
 
 -- ========== NOTIFICATIONS ==========
@@ -189,7 +201,7 @@ local function notify(text, isClick)
     task.spawn(function() task.wait(2) if n then n:Destroy() end end)
 end
 
--- ========== GRAPHICAL INTERFACE ==========
+-- ========== GUI ==========
 local existing = CoreGui:FindFirstChild(SETTINGS.Name) or (LocalPlayer.PlayerGui and LocalPlayer.PlayerGui:FindFirstChild(SETTINGS.Name))
 if existing then existing:Destroy() end
 
@@ -241,6 +253,15 @@ TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 TitleLabel.TextYAlignment = Enum.TextYAlignment.Center
 TitleLabel.Parent = Header
 
+-- Title bar drag area (large enough for mobile)
+local DragBar = Instance.new("TextButton")
+DragBar.Size = UDim2.new(1,-70,1,0)
+DragBar.Position = UDim2.new(0,0,0,0)
+DragBar.BackgroundTransparency = 1
+DragBar.Text = ""
+DragBar.ZIndex = 10
+DragBar.Parent = Header
+
 local Controls = Instance.new("Frame")
 Controls.Size = UDim2.new(0, 70, 1, 0)
 Controls.Position = UDim2.new(1, -75, 0, 0)
@@ -289,73 +310,67 @@ CloseBtn.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
 end)
 
--- ========== DRAG SUPPORT FOR MOBILE (TOUCH) AND PC ==========
-local dragging = false
-local dragStart, startPos
+-- ========== DRAG SUPPORT (PC + MOBILE) ==========
+local dragData = { active = false, startPos = Vector2.zero, startFramePos = UDim2.new() }
 
-local function startDrag(inputPos)
-    dragging = true
-    dragStart = inputPos
-    startPos = MainFrame.Position
+local function onDragStart(inputPos)
+    dragData.active = true
+    dragData.startPos = inputPos
+    dragData.startFramePos = MainFrame.Position
 end
 
-local function updateDrag(inputPos)
-    if dragging then
-        local delta = inputPos - dragStart
-        MainFrame.Position = UDim2.new(
-            startPos.X.Scale,
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y
-        )
-    end
+local function onDragMove(inputPos)
+    if not dragData.active then return end
+    local delta = inputPos - dragData.startPos
+    MainFrame.Position = UDim2.new(
+        dragData.startFramePos.X.Scale,
+        dragData.startFramePos.X.Offset + delta.X,
+        dragData.startFramePos.Y.Scale,
+        dragData.startFramePos.Y.Offset + delta.Y
+    )
 end
 
-local function stopDrag()
-    dragging = false
+local function onDragEnd()
+    dragData.active = false
 end
 
--- For mouse
+-- Mouse
 DragBar.MouseButton1Down:Connect(function()
-    startDrag(Vector2.new(Mouse.X, Mouse.Y))
+    onDragStart(Vector2.new(Mouse.X, Mouse.Y))
 end)
 UserInputService.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement then
-        updateDrag(Vector2.new(Mouse.X, Mouse.Y))
+    if input.UserInputType == Enum.UserInputType.MouseMovement and dragData.active then
+        onDragMove(Vector2.new(Mouse.X, Mouse.Y))
     end
 end)
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        stopDrag()
+        onDragEnd()
     end
 end)
-Mouse.Button1Up:Connect(stopDrag)
+Mouse.Button1Up:Connect(onDragEnd)
 
--- For touch (mobile)
+-- Touch
 if UserInputService.TouchEnabled then
-    local touchStartConn, touchMoveConn, touchEndConn
-    local function onTouchBegan(touch, gameProcessed)
+    local function touchBegan(touch, gameProcessed)
         if gameProcessed then return end
-        -- Check if touch is on DragBar (rough bounds)
         local dragBarAbsPos = DragBar.AbsolutePosition
         local dragBarSize = DragBar.AbsoluteSize
         if touch.Position.X >= dragBarAbsPos.X and touch.Position.X <= dragBarAbsPos.X + dragBarSize.X and
            touch.Position.Y >= dragBarAbsPos.Y and touch.Position.Y <= dragBarAbsPos.Y + dragBarSize.Y then
-            startDrag(touch.Position)
+            onDragStart(touch.Position)
         end
     end
-    local function onTouchMoved(touch, gameProcessed)
+    local function touchMoved(touch, gameProcessed)
         if gameProcessed then return end
-        if dragging then
-            updateDrag(touch.Position)
-        end
+        onDragMove(touch.Position)
     end
-    local function onTouchEnded(touch, gameProcessed)
-        stopDrag()
+    local function touchEnded(touch, gameProcessed)
+        onDragEnd()
     end
-    UserInputService.TouchBegan:Connect(onTouchBegan)
-    UserInputService.TouchMoved:Connect(onTouchMoved)
-    UserInputService.TouchEnded:Connect(onTouchEnded)
+    UserInputService.TouchBegan:Connect(touchBegan)
+    UserInputService.TouchMoved:Connect(touchMoved)
+    UserInputService.TouchEnded:Connect(touchEnded)
 end
 
 -- Sidebar
@@ -489,7 +504,7 @@ farmContainer.Size = UDim2.new(1,0,0,100)
 farmContainer.BackgroundTransparency = 1
 farmContainer.Parent = mainTab
 
-local farmToggleBtn = Instance.new("TextButton")
+farmToggleBtn = Instance.new("TextButton")
 farmToggleBtn.Size = UDim2.new(0.8,0,0,45)
 farmToggleBtn.Position = UDim2.new(0.1,0,0,10)
 farmToggleBtn.Text = "▶ Enable Farm"
@@ -500,33 +515,21 @@ farmToggleBtn.TextSize = 16
 farmToggleBtn.Parent = farmContainer
 local farmBtnCorner = Instance.new("UICorner") farmBtnCorner.CornerRadius = UDim.new(0,8) farmBtnCorner.Parent = farmToggleBtn
 
-local farmStatus = Instance.new("TextLabel")
-farmStatus.Size = UDim2.new(1,0,0,30)
-farmStatus.Position = UDim2.new(0,0,0,70)
-farmStatus.BackgroundTransparency = 1
-farmStatus.Text = "Status: ○ Disabled"
-farmStatus.TextColor3 = COLORS.Text
-farmStatus.Font = Enum.Font.Gotham
-farmStatus.TextSize = 14
-farmStatus.TextXAlignment = Enum.TextXAlignment.Center
-farmStatus.Parent = farmContainer
-
--- Callback to update UI from setFarming
-updateFarmUICallback = function(enabled)
-    if enabled then
-        farmToggleBtn.Text = "⏹ Disable Farm"
-        farmToggleBtn.BackgroundColor3 = Color3.fromRGB(180,0,0)
-        farmStatus.Text = "Status: ● Enabled (working in Safe)"
-    else
-        farmToggleBtn.Text = "▶ Enable Farm"
-        farmToggleBtn.BackgroundColor3 = COLORS.Button
-        farmStatus.Text = "Status: ○ Disabled"
-    end
-end
+farmStatusLabel = Instance.new("TextLabel")
+farmStatusLabel.Size = UDim2.new(1,0,0,30)
+farmStatusLabel.Position = UDim2.new(0,0,0,70)
+farmStatusLabel.BackgroundTransparency = 1
+farmStatusLabel.Text = "Status: ○ Disabled"
+farmStatusLabel.TextColor3 = COLORS.Text
+farmStatusLabel.Font = Enum.Font.Gotham
+farmStatusLabel.TextSize = 14
+farmStatusLabel.TextXAlignment = Enum.TextXAlignment.Center
+farmStatusLabel.Parent = farmContainer
 
 farmToggleBtn.MouseButton1Click:Connect(function()
-    local newState = not isFarming
-    setFarming(newState)
+    setFarming(not isFarming)
+    local msg = isFarming and "Farm started" or "Farm stopped"
+    notify(msg, false)
 end)
 
 local infoText = Instance.new("TextLabel")
@@ -541,8 +544,7 @@ infoText.TextXAlignment = Enum.TextXAlignment.Left
 infoText.TextYAlignment = Enum.TextYAlignment.Top
 infoText.Parent = mainTab
 
--- CONFIG TAB (save/load system)
--- (оставлен без изменений, полный код ниже)
+-- ========== CONFIG TAB (unchanged) ==========
 local useFS = pcall(function() return isfolder and makefolder and listfiles and writefile and readfile and delfile end)
 local globalCfgs = getgenv()._Fer4ixzConfigs or {}
 getgenv()._Fer4ixzConfigs = globalCfgs
@@ -875,7 +877,7 @@ if tabs["Home"] then
     tabs["Home"].page.Visible = true
 end
 
--- Toggle menu with key (RightShift)
+-- Toggle menu with RightShift
 UserInputService.InputBegan:Connect(function(inp, gp)
     if gp then return end
     if inp.KeyCode == SETTINGS.ToggleKey then
@@ -883,4 +885,4 @@ UserInputService.InputBegan:Connect(function(inp, gp)
     end
 end)
 
-print("✅ Kick a Lucky Block Script (Brainrot AutoFarm) loaded. Press RightShift to open menu.")
+print("✅ Kick a Lucky Block Script (fully fixed) loaded. Press RightShift to open menu. On mobile, drag the title bar.")
