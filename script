@@ -143,7 +143,7 @@ local function farmCycle()
         task.wait(FarmSettings.WaitSeconds)
 
         local currentChar = waitForCharacter()
-        smoothTeleportCharacter(currentChar, 6)
+        smoothTeleportCharacter(currentChar, 7)
 
         task.wait(0.5)
     end
