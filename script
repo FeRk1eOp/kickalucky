@@ -30,7 +30,7 @@ local COLORS = {
 
 -- ========== AUTOFARM ==========
 local FarmSettings = {
-    VerticalOffset = 6,
+    VerticalOffset = 8,
     WaitSeconds = 14,
 }
 
@@ -144,7 +144,7 @@ local function farmCycle()
         task.wait(FarmSettings.WaitSeconds)
 
         local currentChar = waitForCharacter()
-        smoothTeleportCharacter(currentChar, 2)
+        smoothTeleportCharacter(currentChar, 8)
 
         task.wait(0.5)
     end
