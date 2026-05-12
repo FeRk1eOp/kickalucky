@@ -932,13 +932,25 @@ local configTab   = CreateTab("Config",     "Config")
 -- =====================================================================
 -- HOME TAB
 -- =====================================================================
+local DISCORD_BLURPLE = Color3.fromRGB(88, 101, 242)
+
+local welcome = Instance.new("TextLabel")
+welcome.Size                  = UDim2.new(1, -20, 0, 50)
+welcome.BackgroundTransparency = 1
+welcome.Text                  = "Hello, " .. LocalPlayer.Name
+welcome.TextColor3            = COLORS.Text
+welcome.Font                  = Enum.Font.GothamBold
+welcome.TextSize              = 20
+welcome.TextXAlignment        = Enum.TextXAlignment.Center
+welcome.Parent                = homeTab
+
 local homeTitle = Instance.new("TextLabel")
-homeTitle.Size                  = UDim2.new(1, -20, 0, 60)
+homeTitle.Size                  = UDim2.new(1, -20, 0, 40)
 homeTitle.BackgroundTransparency = 1
 homeTitle.Text                  = "Kick A Lucky Block script fer4ixz.lol"
 homeTitle.TextColor3            = COLORS.Text
 homeTitle.Font                  = Enum.Font.GothamBold
-homeTitle.TextSize              = 18
+homeTitle.TextSize              = 16
 homeTitle.TextXAlignment        = Enum.TextXAlignment.Center
 homeTitle.TextYAlignment        = Enum.TextYAlignment.Center
 homeTitle.TextWrapped           = true
@@ -964,7 +976,7 @@ end
 
 local copyDiscordBtn = Instance.new("TextButton")
 copyDiscordBtn.Size                  = UDim2.new(1, -20, 0, 40)
-copyDiscordBtn.BackgroundColor3      = COLORS.Button
+copyDiscordBtn.BackgroundColor3      = DISCORD_BLURPLE
 copyDiscordBtn.Text                  = "Copy Link Discord"
 copyDiscordBtn.TextColor3            = COLORS.Text
 copyDiscordBtn.Font                  = Enum.Font.GothamBold
