@@ -133,12 +133,30 @@ local function smoothTeleportCharacter(character, duration)
     return true
 end
 
+-- Проверка: игрок стоит на/над Safe (по XZ-проекции колонны Safe + допуск по Y).
+-- Использует размер Safe, чтобы корректно работать на любой толщине платформы,
+-- а не только когда игрок ровно в 5 студах от точки (Safe + offset).
 local function isAtSafe(character)
     if not character or not character.PrimaryPart then return false end
-    local target = getTargetCFrame()
-    if not target then return false end
-    local dist = (character.PrimaryPart.Position - target.Position).Magnitude
-    return dist < 5
+    local safePart = getSafePartOrNil()
+    if not safePart then return false end
+
+    local charPos = character.PrimaryPart.Position
+    local safePos = safePart.Position
+    local size    = safePart.Size
+
+    -- XZ: внутри (или почти внутри) границ верхней грани Safe.
+    local dx = math.abs(charPos.X - safePos.X)
+    local dz = math.abs(charPos.Z - safePos.Z)
+    if dx > size.X / 2 + 5 then return false end
+    if dz > size.Z / 2 + 5 then return false end
+
+    -- Y: не провалился под Safe и не слишком высоко.
+    local dy = charPos.Y - safePos.Y
+    if dy < -5 then return false end
+    if dy > size.Y / 2 + ScriptSettings.VerticalOffset + 10 then return false end
+
+    return true
 end
 
 local function waitForCharacter()
@@ -168,18 +186,28 @@ local function farmLoop()
 
         local character = waitForCharacter()
 
+        if not getSafePartOrNil() then
+            print("[Brainrot] Lobby.Safe не найден, ждём...")
+            isCycling = false
+            task.wait(1)
+            continue
+        end
+
         if firstRun then
-            if not isAtSafe(character) then
-                teleportWholeCharacter(character)
-                task.wait(0.3)
-            end
-            firstRun = false
+            -- На первом запуске всегда телепортируемся над Safe,
+            -- чтобы стартовать из заведомо корректной позиции.
+            teleportWholeCharacter(character)
+            task.wait(0.3)
+            character = waitForCharacter()
+            firstRun  = false
         end
 
         if not isAtSafe(character) then
-            print("[Brainrot] Персонаж не в Safe, ждём...")
+            -- Вместо вечного ожидания — телепортируем обратно.
+            print("[Brainrot] Персонаж не в Safe, телепортируем...")
+            teleportWholeCharacter(character)
+            task.wait(0.3)
             isCycling = false
-            task.wait(0.5)
             continue
         end
 
