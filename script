@@ -995,8 +995,7 @@ end)
 local baseInfoLabel = Instance.new("TextLabel")
 baseInfoLabel.Size                  = UDim2.new(1, -10, 0, 60)
 baseInfoLabel.BackgroundTransparency = 1
-baseInfoLabel.Text                  = "AutoCollect: fires rev_B_Collect for all 10 places in a loop. "
-                                      .. "AutoUpgrade: fires rev_B_Upgrade for the selected place."
+baseInfoLabel.Text                  = "Working in only Base"
 baseInfoLabel.TextColor3            = COLORS.TextDark
 baseInfoLabel.Font                  = Enum.Font.Gotham
 baseInfoLabel.TextSize              = 12
