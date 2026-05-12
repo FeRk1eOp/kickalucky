@@ -1,5 +1,5 @@
 -- Kick a Lucky Block – Brainrot AutoFarm Menu
--- Tabs: Home, AutoFarm, Config
+-- Tabs: Home, AutoFarm, Base Function, Config
 -- Adapted from Fer4ixz ScriptHub V28 menu framework (drag, sidebar, scrollable tabs, notify, config system).
 
 local Players                = game:GetService("Players")
@@ -42,6 +42,11 @@ local ScriptSettings = {
     VerticalOffset         = 6,    -- studs above Safe
     KickWaitSeconds        = 13,   -- seconds to wait after firing KickEvent
     SmoothTeleportDuration = 7,    -- seconds for smooth return interpolation
+
+    -- Base Function tab
+    AutoCollectEnabled     = false,
+    AutoUpgradeEnabled     = false,
+    AutoUpgradePlace       = 1,    -- 1..10
 }
 
 -- =====================================================================
@@ -62,6 +67,18 @@ local function getKickEventOrNil()
     local network = getNetworkOrNil()
     if not network then return nil end
     return network:FindFirstChild("rev_KickEvent")
+end
+
+local function getCollectEventOrNil()
+    local network = getNetworkOrNil()
+    if not network then return nil end
+    return network:FindFirstChild("rev_B_Collect")
+end
+
+local function getUpgradeEventOrNil()
+    local network = getNetworkOrNil()
+    if not network then return nil end
+    return network:FindFirstChild("rev_B_Upgrade")
 end
 
 local function getSafePartOrNil()
@@ -281,6 +298,54 @@ local function farmLoop()
 end
 
 -- =====================================================================
+-- BASE FUNCTION CORE (AutoCollect / AutoUpgrade)
+-- =====================================================================
+local MIN_PLACE = 1
+local MAX_PLACE = 10
+
+local function clampPlace(v)
+    v = tonumber(v) or MIN_PLACE
+    if v < MIN_PLACE then v = MIN_PLACE end
+    if v > MAX_PLACE then v = MAX_PLACE end
+    return math.floor(v)
+end
+
+local autoCollectLoopRunning = false
+local function autoCollectLoop()
+    if autoCollectLoopRunning then return end
+    autoCollectLoopRunning = true
+    while ScriptSettings.AutoCollectEnabled do
+        local ev = getCollectEventOrNil()
+        if ev then
+            for i = MIN_PLACE, MAX_PLACE do
+                if not ScriptSettings.AutoCollectEnabled then break end
+                pcall(function() ev:FireServer(i) end)
+                task.wait(0.05)
+            end
+        else
+            print("[Base] rev_B_Collect не найден, ждём...")
+        end
+        task.wait(1)
+    end
+    autoCollectLoopRunning = false
+end
+
+local autoUpgradeLoopRunning = false
+local function autoUpgradeLoop()
+    if autoUpgradeLoopRunning then return end
+    autoUpgradeLoopRunning = true
+    while ScriptSettings.AutoUpgradeEnabled do
+        local ev = getUpgradeEventOrNil()
+        if ev then
+            local place = clampPlace(ScriptSettings.AutoUpgradePlace)
+            pcall(function() ev:FireServer(place) end)
+        end
+        task.wait(1)
+    end
+    autoUpgradeLoopRunning = false
+end
+
+-- =====================================================================
 -- GUI
 -- =====================================================================
 local existing = (CoreGui and CoreGui:FindFirstChild(SETTINGS.Name))
@@ -430,7 +495,9 @@ MinBtn.MouseButton1Click:Connect(function()
     end
 end)
 CloseBtn.MouseButton1Click:Connect(function()
-    ScriptSettings.AutoFarmEnabled = false
+    ScriptSettings.AutoFarmEnabled    = false
+    ScriptSettings.AutoCollectEnabled = false
+    ScriptSettings.AutoUpgradeEnabled = false
     ScreenGui:Destroy()
 end)
 
@@ -775,6 +842,7 @@ end
 
 local homeTab     = CreateTab("Home",     "Home")
 local autoFarmTab = CreateTab("AutoFarm", "AutoFarm")
+local baseTab     = CreateTab("BaseFunction", "Base Function")
 local configTab   = CreateTab("Config",   "Config")
 
 -- =====================================================================
@@ -882,6 +950,62 @@ infoLabel.TextWrapped       = true
 infoLabel.Parent            = autoFarmTab
 
 -- =====================================================================
+-- BASE FUNCTION TAB
+-- =====================================================================
+local baseHeader = Instance.new("TextLabel")
+baseHeader.Size                  = UDim2.new(1, -10, 0, 25)
+baseHeader.BackgroundTransparency = 1
+baseHeader.Text                  = "Base Function"
+baseHeader.TextColor3            = COLORS.Text
+baseHeader.Font                  = Enum.Font.GothamBold
+baseHeader.TextSize              = 14
+baseHeader.TextXAlignment        = Enum.TextXAlignment.Left
+baseHeader.LayoutOrder           = 0
+baseHeader.Parent                = baseTab
+
+local autoCollectToggle
+autoCollectToggle = CreateToggle(baseTab, "AutoCollect (places 1\226\128\147 10)", ScriptSettings.AutoCollectEnabled,
+    function()
+        ScriptSettings.AutoCollectEnabled = true
+        notify("AutoCollect enabled", false)
+        task.spawn(autoCollectLoop)
+    end,
+    function()
+        ScriptSettings.AutoCollectEnabled = false
+        notify("AutoCollect disabled", false)
+    end)
+
+local autoUpgradeToggle
+autoUpgradeToggle = CreateToggle(baseTab, "AutoUpgrade (selected place)", ScriptSettings.AutoUpgradeEnabled,
+    function()
+        ScriptSettings.AutoUpgradeEnabled = true
+        notify("AutoUpgrade enabled", false)
+        task.spawn(autoUpgradeLoop)
+    end,
+    function()
+        ScriptSettings.AutoUpgradeEnabled = false
+        notify("AutoUpgrade disabled", false)
+    end)
+
+local upgradePlaceStepper = CreateStepper(baseTab, "Upgrade place: ", MIN_PLACE, MAX_PLACE, 1,
+    ScriptSettings.AutoUpgradePlace, function(v)
+    ScriptSettings.AutoUpgradePlace = clampPlace(v)
+end)
+
+local baseInfoLabel = Instance.new("TextLabel")
+baseInfoLabel.Size                  = UDim2.new(1, -10, 0, 60)
+baseInfoLabel.BackgroundTransparency = 1
+baseInfoLabel.Text                  = "AutoCollect: fires rev_B_Collect for all 10 places in a loop. "
+                                      .. "AutoUpgrade: fires rev_B_Upgrade for the selected place."
+baseInfoLabel.TextColor3            = COLORS.TextDark
+baseInfoLabel.Font                  = Enum.Font.Gotham
+baseInfoLabel.TextSize              = 12
+baseInfoLabel.TextXAlignment        = Enum.TextXAlignment.Left
+baseInfoLabel.TextYAlignment        = Enum.TextYAlignment.Top
+baseInfoLabel.TextWrapped           = true
+baseInfoLabel.Parent                = baseTab
+
+-- =====================================================================
 -- CONFIG SYSTEM
 -- =====================================================================
 local useFS = false
@@ -987,15 +1111,21 @@ local function createConfig(name)
         VerticalOffset         = ScriptSettings.VerticalOffset,
         KickWaitSeconds        = ScriptSettings.KickWaitSeconds,
         SmoothTeleportDuration = ScriptSettings.SmoothTeleportDuration,
+        AutoCollectEnabled     = ScriptSettings.AutoCollectEnabled,
+        AutoUpgradeEnabled     = ScriptSettings.AutoUpgradeEnabled,
+        AutoUpgradePlace       = ScriptSettings.AutoUpgradePlace,
     }
     return saveCfg(name, data)
 end
 
 local function applySettingsToUI()
-    if verticalStepper then verticalStepper.setValue(ScriptSettings.VerticalOffset, true) end
-    if kickWaitStepper then kickWaitStepper.setValue(ScriptSettings.KickWaitSeconds, true) end
-    if smoothStepper   then smoothStepper.setValue(ScriptSettings.SmoothTeleportDuration, true) end
-    if autoFarmToggle  then autoFarmToggle.setValue(ScriptSettings.AutoFarmEnabled, true) end
+    if verticalStepper     then verticalStepper.setValue(ScriptSettings.VerticalOffset, true) end
+    if kickWaitStepper     then kickWaitStepper.setValue(ScriptSettings.KickWaitSeconds, true) end
+    if smoothStepper       then smoothStepper.setValue(ScriptSettings.SmoothTeleportDuration, true) end
+    if autoFarmToggle      then autoFarmToggle.setValue(ScriptSettings.AutoFarmEnabled, true) end
+    if autoCollectToggle   then autoCollectToggle.setValue(ScriptSettings.AutoCollectEnabled, true) end
+    if autoUpgradeToggle   then autoUpgradeToggle.setValue(ScriptSettings.AutoUpgradeEnabled, true) end
+    if upgradePlaceStepper then upgradePlaceStepper.setValue(ScriptSettings.AutoUpgradePlace, true) end
     updateStatusLabel()
 end
 
@@ -1006,22 +1136,44 @@ local function loadConfig(name)
     if type(data.VerticalOffset)         == "number" then ScriptSettings.VerticalOffset         = data.VerticalOffset end
     if type(data.KickWaitSeconds)        == "number" then ScriptSettings.KickWaitSeconds        = data.KickWaitSeconds end
     if type(data.SmoothTeleportDuration) == "number" then ScriptSettings.SmoothTeleportDuration = data.SmoothTeleportDuration end
-    local desiredEnabled = data.AutoFarmEnabled == true
+    if type(data.AutoUpgradePlace)       == "number" then ScriptSettings.AutoUpgradePlace       = clampPlace(data.AutoUpgradePlace) end
+
+    local desiredFarm    = data.AutoFarmEnabled    == true
+    local desiredCollect = data.AutoCollectEnabled == true
+    local desiredUpgrade = data.AutoUpgradeEnabled == true
 
     applySettingsToUI()
 
-    if desiredEnabled and not ScriptSettings.AutoFarmEnabled then
+    if desiredFarm and not ScriptSettings.AutoFarmEnabled then
         ScriptSettings.AutoFarmEnabled = true
         firstRun  = true
         isCycling = false
         if autoFarmToggle then autoFarmToggle.setValue(true, true) end
         updateStatusLabel()
         task.spawn(farmLoop)
-    elseif (not desiredEnabled) and ScriptSettings.AutoFarmEnabled then
+    elseif (not desiredFarm) and ScriptSettings.AutoFarmEnabled then
         ScriptSettings.AutoFarmEnabled = false
         isCycling = false
         if autoFarmToggle then autoFarmToggle.setValue(false, true) end
         updateStatusLabel()
+    end
+
+    if desiredCollect and not ScriptSettings.AutoCollectEnabled then
+        ScriptSettings.AutoCollectEnabled = true
+        if autoCollectToggle then autoCollectToggle.setValue(true, true) end
+        task.spawn(autoCollectLoop)
+    elseif (not desiredCollect) and ScriptSettings.AutoCollectEnabled then
+        ScriptSettings.AutoCollectEnabled = false
+        if autoCollectToggle then autoCollectToggle.setValue(false, true) end
+    end
+
+    if desiredUpgrade and not ScriptSettings.AutoUpgradeEnabled then
+        ScriptSettings.AutoUpgradeEnabled = true
+        if autoUpgradeToggle then autoUpgradeToggle.setValue(true, true) end
+        task.spawn(autoUpgradeLoop)
+    elseif (not desiredUpgrade) and ScriptSettings.AutoUpgradeEnabled then
+        ScriptSettings.AutoUpgradeEnabled = false
+        if autoUpgradeToggle then autoUpgradeToggle.setValue(false, true) end
     end
 
     return true
@@ -1294,7 +1446,9 @@ UserInputService.InputBegan:Connect(function(inp, gp)
 end)
 
 ScreenGui.Destroying:Connect(function()
-    ScriptSettings.AutoFarmEnabled = false
+    ScriptSettings.AutoFarmEnabled    = false
+    ScriptSettings.AutoCollectEnabled = false
+    ScriptSettings.AutoUpgradeEnabled = false
 end)
 
 print("[Kick a Lucky] AutoFarm menu loaded. Press " ..
