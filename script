@@ -21,7 +21,7 @@ local SETTINGS = {
     ToggleKey    = Enum.KeyCode.RightShift,
     ProfileImage = "rbxassetid://96041759772811",
     HeaderIcon   = "rbxassetid://89283807013725",
-    HeaderTitle  = "Kick a Lucky Block – AutoFarm",
+    HeaderTitle  = "fer4ixz.lol - Kick A Lucky Block",
 }
 
 local COLORS = {
@@ -932,40 +932,56 @@ local configTab   = CreateTab("Config",     "Config")
 -- =====================================================================
 -- HOME TAB
 -- =====================================================================
-local welcome = Instance.new("TextLabel")
-welcome.Size              = UDim2.new(1, -20, 0, 50)
-welcome.BackgroundTransparency = 1
-welcome.Text              = "Hello, " .. LocalPlayer.Name
-welcome.TextColor3        = COLORS.Text
-welcome.Font              = Enum.Font.GothamBold
-welcome.TextSize          = 20
-welcome.TextXAlignment    = Enum.TextXAlignment.Center
-welcome.Parent            = homeTab
+local homeTitle = Instance.new("TextLabel")
+homeTitle.Size                  = UDim2.new(1, -20, 0, 60)
+homeTitle.BackgroundTransparency = 1
+homeTitle.Text                  = "Kick A Lucky Block script fer4ixz.lol"
+homeTitle.TextColor3            = COLORS.Text
+homeTitle.Font                  = Enum.Font.GothamBold
+homeTitle.TextSize              = 18
+homeTitle.TextXAlignment        = Enum.TextXAlignment.Center
+homeTitle.TextYAlignment        = Enum.TextYAlignment.Center
+homeTitle.TextWrapped           = true
+homeTitle.Parent                = homeTab
 
-local subtitle = Instance.new("TextLabel")
-subtitle.Size              = UDim2.new(1, -20, 0, 40)
-subtitle.BackgroundTransparency = 1
-subtitle.Text              = "Brainrot AutoFarm for Kick a Lucky Block"
-subtitle.TextColor3        = COLORS.Text
-subtitle.Font              = Enum.Font.Gotham
-subtitle.TextSize          = 14
-subtitle.TextXAlignment    = Enum.TextXAlignment.Center
-subtitle.TextYAlignment    = Enum.TextYAlignment.Top
-subtitle.Parent            = homeTab
+local discordUrl = "https://discord.gg/fer4ixz"
 
-local hint = Instance.new("TextLabel")
-hint.Size              = UDim2.new(1, -20, 0, 40)
-hint.BackgroundTransparency = 1
-hint.Text              = "Open the Automation tab to start. Press " ..
-                          tostring(SETTINGS.ToggleKey):gsub("Enum.KeyCode.", "") ..
-                          " to toggle the menu."
-hint.TextColor3        = COLORS.TextDark
-hint.Font              = Enum.Font.Gotham
-hint.TextSize          = 13
-hint.TextXAlignment    = Enum.TextXAlignment.Center
-hint.TextYAlignment    = Enum.TextYAlignment.Top
-hint.TextWrapped       = true
-hint.Parent            = homeTab
+local function copyToClipboard(text)
+    local ok = false
+    pcall(function()
+        if setclipboard then setclipboard(text) ok = true end
+    end)
+    if ok then return true end
+    pcall(function()
+        if toclipboard then toclipboard(text) ok = true end
+    end)
+    if ok then return true end
+    pcall(function()
+        if Clipboard and Clipboard.set then Clipboard.set(text) ok = true end
+    end)
+    return ok
+end
+
+local copyDiscordBtn = Instance.new("TextButton")
+copyDiscordBtn.Size                  = UDim2.new(1, -20, 0, 40)
+copyDiscordBtn.BackgroundColor3      = COLORS.Button
+copyDiscordBtn.Text                  = "Copy Link Discord"
+copyDiscordBtn.TextColor3            = COLORS.Text
+copyDiscordBtn.Font                  = Enum.Font.GothamBold
+copyDiscordBtn.TextSize              = 14
+copyDiscordBtn.AutoButtonColor       = true
+copyDiscordBtn.Parent                = homeTab
+local copyDiscordCorner = Instance.new("UICorner")
+copyDiscordCorner.CornerRadius = UDim.new(0, 6)
+copyDiscordCorner.Parent = copyDiscordBtn
+
+copyDiscordBtn.MouseButton1Click:Connect(function()
+    if copyToClipboard(discordUrl) then
+        notify("Discord link copied", true)
+    else
+        notify("Clipboard not supported by executor", false)
+    end
+end)
 
 -- =====================================================================
 -- AUTOMATION TAB (AutoFarm + AutoBonus)
