@@ -371,9 +371,15 @@ local function isEffectivelyVisible(gui)
     return true
 end
 
--- Нажатие на GuiButton через все доступные API эксплоитов, чтобы работало в разных.
+-- Нажатие на GuiButton всеми доступными способами.
+-- 1) firesignal на Activated / MouseButton1Click / MouseButton1Down / MouseButton1Up.
+-- 2) Если firesignal нет — getconnections fallback (вручную дёргаем подписчиков).
+-- 3) VirtualInputManager:SendMouseButtonEvent по центру кнопки — настоящий клик мышью,
+--    срабатывает даже если на кнопке вообще нет коннектов (есть UIS-обработчик и т.п.).
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local function clickGuiButton(btn)
     if not btn then return end
+
     local signals = { btn.Activated, btn.MouseButton1Click, btn.MouseButton1Down, btn.MouseButton1Up }
     for _, sig in ipairs(signals) do
         pcall(function()
@@ -393,6 +399,11 @@ local function clickGuiButton(btn)
             end
         end
     end)
+    pcall(function()
+        local pos  = btn.AbsolutePosition + btn.AbsoluteSize / 2
+        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, true,  game, 0)
+        VirtualInputManager:SendMouseButtonEvent(pos.X, pos.Y, 0, false, game, 0)
+    end)
 end
 
 local autoBonusLoopRunning = false
@@ -401,19 +412,14 @@ local function autoBonusLoop()
     autoBonusLoopRunning = true
     while ScriptSettings.AutoBonusEnabled do
         local ku = getKickUpgradesOrNil()
-        if ku then
-            -- KickUpgrades.Bonus — фейковая кнопка-приманка, её и всех её потомков скипаем.
-            local fakeRoot = ku:FindFirstChild("Bonus")
-            -- Брутфорс: жмём все остальные GuiButton под KickUpgrades, которые реально видны и Active.
-            for _, d in ipairs(ku:GetDescendants()) do
-                if d:IsA("GuiButton") and d.Active and isEffectivelyVisible(d) then
-                    local isFake = false
-                    if fakeRoot then
-                        isFake = (d == fakeRoot) or d:IsDescendantOf(fakeRoot)
-                    end
-                    if not isFake then
-                        clickGuiButton(d)
-                    end
+        local guiEnabled = ku and (not ku:IsA("ScreenGui") or ku.Enabled)
+        if ku and guiEnabled then
+            -- Жмём прямых детей KickUpgrades: ImageButton + Visible + Active.
+            -- Фейковая Bonus всегда Visible=false, поэтому отсеется автоматически.
+            -- Позиция [4]/[5] меняется из-за эффектов прокачки, поэтому ходим по детям, а не по индексу.
+            for _, child in ipairs(ku:GetChildren()) do
+                if child:IsA("ImageButton") and child.Visible and child.Active then
+                    clickGuiButton(child)
                 end
             end
         end
