@@ -956,7 +956,7 @@ homeTitle.TextYAlignment        = Enum.TextYAlignment.Center
 homeTitle.TextWrapped           = true
 homeTitle.Parent                = homeTab
 
-local discordUrl = "https://discord.gg/fer4ixz"
+local discordUrl = "https://discord.gg/46Kpxu3FQj"
 
 local function copyToClipboard(text)
     local ok = false
