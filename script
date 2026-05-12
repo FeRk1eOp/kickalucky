@@ -351,17 +351,24 @@ end
 -- =====================================================================
 -- AUTOBONUS CORE
 -- =====================================================================
--- Кнопка бонуса при прокачке: PlayerGui.KickUpgrades:GetChildren()[4].
-local function getBonusButtonOrNil()
+local function getKickUpgradesOrNil()
     local pg = LocalPlayer:FindFirstChild("PlayerGui")
     if not pg then return nil end
-    local ku = pg:FindFirstChild("KickUpgrades")
-    if not ku then return nil end
-    local children = ku:GetChildren()
-    local btn = children[4]
-    if not btn then return nil end
-    if not btn:IsA("GuiButton") then return nil end
-    return btn
+    return pg:FindFirstChild("KickUpgrades")
+end
+
+-- Эффективная видимость GuiObject: учитываем все родительские Visible/Enabled.
+local function isEffectivelyVisible(gui)
+    local cur = gui
+    while cur and cur ~= game do
+        if cur:IsA("ScreenGui") then
+            return cur.Enabled
+        elseif cur:IsA("GuiObject") then
+            if cur.Visible == false then return false end
+        end
+        cur = cur.Parent
+    end
+    return true
 end
 
 -- Нажатие на GuiButton через все доступные API эксплоитов, чтобы работало в разных.
@@ -393,9 +400,15 @@ local function autoBonusLoop()
     if autoBonusLoopRunning then return end
     autoBonusLoopRunning = true
     while ScriptSettings.AutoBonusEnabled do
-        local btn = getBonusButtonOrNil()
-        if btn then
-            clickGuiButton(btn)
+        local ku = getKickUpgradesOrNil()
+        if ku then
+            -- Брутфорс: жмём все GuiButton под KickUpgrades, которые реально видны и Active.
+            -- Фейковая кнопка-приманка обычно либо скрыта, либо не имеет рабочего обработчика.
+            for _, d in ipairs(ku:GetDescendants()) do
+                if d:IsA("GuiButton") and d.Active and isEffectivelyVisible(d) then
+                    clickGuiButton(d)
+                end
+            end
         end
         task.wait(0.3)
     end
