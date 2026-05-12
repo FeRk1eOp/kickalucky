@@ -1,96 +1,150 @@
---[[
-    Brainrot AutoFarm для Kick a Lucky Block
-    - Перемещение ВСЕГО персонажа через SetPrimaryPartCFrame
-    - Подъём на 6 единиц выше Safe (можно изменить переменную verticalOffset)
---]]
+-- Kick a Lucky Block – Brainrot AutoFarm Menu
+-- Tabs: Home, AutoFarm, Config
+-- Adapted from Fer4ixz ScriptHub V28 menu framework (drag, sidebar, scrollable tabs, notify, config system).
 
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players                = game:GetService("Players")
+local TweenService           = game:GetService("TweenService")
+local UserInputService       = game:GetService("UserInputService")
+local CoreGui                = game:GetService("CoreGui")
+local HttpService            = game:GetService("HttpService")
+local ReplicatedStorage      = game:GetService("ReplicatedStorage")
+local Camera                 = workspace.CurrentCamera
 
-local Network = ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Packages"):WaitForChild("Network")
-local rev_KickEvent = Network:WaitForChild("rev_KickEvent")
+local LocalPlayer = Players.LocalPlayer
+while not LocalPlayer do task.wait() end
 
-local player = Players.LocalPlayer
-local safePart = workspace:WaitForChild("Lobby"):WaitForChild("Safe")
+-- =====================================================================
+-- MENU SETTINGS
+-- =====================================================================
+local SETTINGS = {
+    Name         = "KickALucky_AutoFarmMenu",
+    ToggleKey    = Enum.KeyCode.RightShift,
+    ProfileImage = "rbxassetid://96041759772811",
+    HeaderIcon   = "rbxassetid://89283807013725",
+    HeaderTitle  = "Kick a Lucky Block – AutoFarm",
+}
 
-local isEnabled = false
+local COLORS = {
+    Background     = Color3.fromRGB(15,15,15),
+    Sidebar        = Color3.fromRGB(10,10,10),
+    Button         = Color3.fromRGB(25,25,25),
+    ButtonSelected = Color3.fromRGB(40,40,40),
+    Text           = Color3.fromRGB(255,255,255),
+    TextDark       = Color3.fromRGB(150,150,150),
+    Stroke         = Color3.fromRGB(45,45,45),
+}
+
+-- =====================================================================
+-- SCRIPT SETTINGS (saved in config)
+-- =====================================================================
+local ScriptSettings = {
+    AutoFarmEnabled        = false,
+    VerticalOffset         = 6,    -- studs above Safe
+    KickWaitSeconds        = 13,   -- seconds to wait after firing KickEvent
+    SmoothTeleportDuration = 7,    -- seconds for smooth return interpolation
+}
+
+-- =====================================================================
+-- AUTOFARM CORE
+-- =====================================================================
 local isCycling = false
-local firstRun = true
+local firstRun  = true
 
--- НАСТРОЙКА: на сколько выше поднимать игрока (в студиях)
-local verticalOffset = 6   -- было 3, теперь 6, можно поставить хоть 10
+local function getNetworkOrNil()
+    local shared = ReplicatedStorage:FindFirstChild("Shared")
+    if not shared then return nil end
+    local packages = shared:FindFirstChild("Packages")
+    if not packages then return nil end
+    return packages:FindFirstChild("Network")
+end
 
--- Целевая позиция выше Safe
+local function getKickEventOrNil()
+    local network = getNetworkOrNil()
+    if not network then return nil end
+    return network:FindFirstChild("rev_KickEvent")
+end
+
+local function getSafePartOrNil()
+    local lobby = workspace:FindFirstChild("Lobby")
+    if not lobby then return nil end
+    return lobby:FindFirstChild("Safe")
+end
+
 local function getTargetCFrame()
-    return safePart.CFrame + Vector3.new(0, verticalOffset, 0)
+    local safePart = getSafePartOrNil()
+    if not safePart then return nil end
+    return safePart.CFrame + Vector3.new(0, ScriptSettings.VerticalOffset, 0)
 end
 
--- Мгновенный теп ВСЕГО персонажа
+local function ensurePrimaryPart(character)
+    if not character then return false end
+    if character.PrimaryPart then return true end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if hrp then
+        character.PrimaryPart = hrp
+        return true
+    end
+    return false
+end
+
 local function teleportWholeCharacter(character)
-    if not character or not character.PrimaryPart then
-        if character then
-            local hrp = character:FindFirstChild("HumanoidRootPart")
-            if hrp then character.PrimaryPart = hrp end
-        end
-        if not character or not character.PrimaryPart then return end
-    end
-    character:SetPrimaryPartCFrame(getTargetCFrame())
-    print("[Brainrot] Мгновенный теп в Safe (выше на " .. verticalOffset .. ")")
+    if not ensurePrimaryPart(character) then return end
+    local target = getTargetCFrame()
+    if not target then return end
+    character:SetPrimaryPartCFrame(target)
+    print(("[Brainrot] Мгновенный теп в Safe (выше на %d)"):format(ScriptSettings.VerticalOffset))
 end
 
--- Плавное перемещение ВСЕГО персонажа с интерполяцией
 local function smoothTeleportCharacter(character, duration)
-    if not character or not character.PrimaryPart then
-        if character then
-            local hrp = character:FindFirstChild("HumanoidRootPart")
-            if hrp then character.PrimaryPart = hrp end
-        end
-        if not character or not character.PrimaryPart then return false end
-    end
+    if not ensurePrimaryPart(character) then return false end
+    local target = getTargetCFrame()
+    if not target then return false end
 
-    local targetCF = getTargetCFrame()
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local wasPlatformStand = humanoid and humanoid.PlatformStand or false
-    local wasAutoRotate = humanoid and humanoid.AutoRotate or false
+    local humanoid          = character:FindFirstChildOfClass("Humanoid")
+    local wasPlatformStand  = humanoid and humanoid.PlatformStand or false
+    local wasAutoRotate     = humanoid and humanoid.AutoRotate or false
 
     if humanoid then
         humanoid.PlatformStand = true
-        humanoid.AutoRotate = false
+        humanoid.AutoRotate    = false
     end
 
     local startCFrame = character.PrimaryPart.CFrame
-    local startTime = tick()
+    local startTime   = tick()
+    duration          = math.max(duration or 0, 0.05)
 
     while tick() - startTime < duration do
+        if not ScriptSettings.AutoFarmEnabled then break end
         local alpha = (tick() - startTime) / duration
-        local newCFrame = startCFrame:Lerp(targetCF, alpha)
+        local newCFrame = startCFrame:Lerp(target, alpha)
         character:SetPrimaryPartCFrame(newCFrame)
         task.wait()
     end
 
-    character:SetPrimaryPartCFrame(targetCF)
+    if character.PrimaryPart then
+        character:SetPrimaryPartCFrame(target)
+    end
 
     if humanoid then
         humanoid.PlatformStand = wasPlatformStand
-        humanoid.AutoRotate = wasAutoRotate
+        humanoid.AutoRotate    = wasAutoRotate
     end
-    print("[Brainrot] Плавное перемещение завершено (выше на " .. verticalOffset .. ")")
+    print(("[Brainrot] Плавное перемещение завершено (выше на %d)"):format(ScriptSettings.VerticalOffset))
     return true
 end
 
--- Проверка: достаточно близко к целевой позиции (с учётом высоты)
 local function isAtSafe(character)
     if not character or not character.PrimaryPart then return false end
-    local targetPos = getTargetCFrame().Position
-    local dist = (character.PrimaryPart.Position - targetPos).Magnitude
+    local target = getTargetCFrame()
+    if not target then return false end
+    local dist = (character.PrimaryPart.Position - target.Position).Magnitude
     return dist < 5
 end
 
--- Ожидание появления персонажа
 local function waitForCharacter()
-    local char = player.Character
+    local char = LocalPlayer.Character
     if not char or not char.PrimaryPart then
-        char = player.CharacterAdded:Wait()
+        char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
         repeat task.wait() until char.PrimaryPart or char:FindFirstChild("HumanoidRootPart")
         if char and not char.PrimaryPart then
             char.PrimaryPart = char:FindFirstChild("HumanoidRootPart")
@@ -100,9 +154,12 @@ local function waitForCharacter()
     return char
 end
 
--- Основной цикл
+local farmLoopRunning = false
 local function farmLoop()
-    while isEnabled do
+    if farmLoopRunning then return end
+    farmLoopRunning = true
+
+    while ScriptSettings.AutoFarmEnabled do
         if isCycling then
             task.wait(0.2)
             continue
@@ -126,64 +183,1051 @@ local function farmLoop()
             continue
         end
 
-        -- Пинок
-        local args = { [1] = 1 }
-        rev_KickEvent:FireServer(unpack(args))
-        print("[Brainrot] KickEvent отправлен, ждём 14 секунд...")
+        local kickEvent = getKickEventOrNil()
+        if not kickEvent then
+            print("[Brainrot] rev_KickEvent не найден, ждём...")
+            isCycling = false
+            task.wait(1)
+            continue
+        end
 
-        task.wait(14)
+        pcall(function() kickEvent:FireServer(1) end)
+        print(("[Brainrot] KickEvent отправлен, ждём %d секунд..."):format(ScriptSettings.KickWaitSeconds))
 
-        local currentChar = waitForCharacter()
-        smoothTeleportCharacter(currentChar, 2)   -- плавно за 2 секунды
+        local waitStart = tick()
+        while ScriptSettings.AutoFarmEnabled and tick() - waitStart < ScriptSettings.KickWaitSeconds do
+            task.wait(0.1)
+        end
+
+        if ScriptSettings.AutoFarmEnabled then
+            local currentChar = waitForCharacter()
+            smoothTeleportCharacter(currentChar, ScriptSettings.SmoothTeleportDuration)
+        end
 
         isCycling = false
+    end
+
+    farmLoopRunning = false
+end
+
+-- =====================================================================
+-- GUI
+-- =====================================================================
+local existing = (CoreGui and CoreGui:FindFirstChild(SETTINGS.Name))
+    or (LocalPlayer:FindFirstChild("PlayerGui") and LocalPlayer.PlayerGui:FindFirstChild(SETTINGS.Name))
+if existing then existing:Destroy() end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name           = SETTINGS.Name
+ScreenGui.ResetOnSpawn   = false
+ScreenGui.DisplayOrder   = 100
+if CoreGui then
+    ScreenGui.Parent = CoreGui
+elseif LocalPlayer:FindFirstChild("PlayerGui") then
+    ScreenGui.Parent = LocalPlayer.PlayerGui
+end
+
+local screenSize = Camera.ViewportSize
+local width  = math.min(screenSize.X * 0.88, 500)
+local height = math.min(screenSize.Y * 0.82, 520)
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size               = UDim2.new(0, width, 0, height)
+MainFrame.Position           = UDim2.new(0.5, -width/2, 0.5, -height/2)
+MainFrame.BackgroundColor3   = COLORS.Background
+MainFrame.BorderSizePixel    = 0
+MainFrame.ClipsDescendants   = true
+MainFrame.Parent             = ScreenGui
+local MainCorner = Instance.new("UICorner") MainCorner.CornerRadius = UDim.new(0,10) MainCorner.Parent = MainFrame
+local MainStroke = Instance.new("UIStroke") MainStroke.Thickness = 1 MainStroke.Color = COLORS.Stroke MainStroke.Parent = MainFrame
+
+local HEADER_H = 40
+local Header = Instance.new("Frame")
+Header.Size              = UDim2.new(1,0,0,HEADER_H)
+Header.BackgroundColor3  = COLORS.Sidebar
+Header.BorderSizePixel   = 0
+Header.Parent            = MainFrame
+local HeaderCorner = Instance.new("UICorner") HeaderCorner.CornerRadius = UDim.new(0,10) HeaderCorner.Parent = Header
+
+local HeaderImage = Instance.new("ImageLabel")
+HeaderImage.Size                  = UDim2.new(0,25,0,25)
+HeaderImage.Position              = UDim2.new(0,5,0.5,-12)
+HeaderImage.Image                 = SETTINGS.HeaderIcon
+HeaderImage.BackgroundTransparency = 1
+HeaderImage.Parent                = Header
+local HeaderImageCorner = Instance.new("UICorner") HeaderImageCorner.CornerRadius = UDim.new(1,0) HeaderImageCorner.Parent = HeaderImage
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size                  = UDim2.new(1,-60,1,0)
+TitleLabel.Position              = UDim2.new(0,35,0,0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text                  = SETTINGS.HeaderTitle
+TitleLabel.TextColor3            = COLORS.Text
+TitleLabel.Font                  = Enum.Font.GothamBold
+TitleLabel.TextSize              = 15
+TitleLabel.TextXAlignment        = Enum.TextXAlignment.Left
+TitleLabel.TextYAlignment        = Enum.TextYAlignment.Center
+TitleLabel.Parent                = Header
+
+local Controls = Instance.new("Frame")
+Controls.Size                  = UDim2.new(0, 70, 1, 0)
+Controls.Position              = UDim2.new(1, -75, 0, 0)
+Controls.BackgroundTransparency = 1
+Controls.Parent                = Header
+
+local function createIconButton(iconType, x)
+    local btn = Instance.new("TextButton")
+    btn.Size             = UDim2.new(0, 32, 0, 32)
+    btn.Position         = UDim2.new(0, x, 0.5, -16)
+    btn.BackgroundColor3 = COLORS.Button
+    btn.Text             = ""
+    btn.BorderSizePixel  = 0
+    btn.ZIndex           = 5
+    btn.Parent           = Controls
+
+    local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0,6) corner.Parent = btn
+
+    local iconFrame = Instance.new("Frame")
+    iconFrame.Size                  = UDim2.new(1,0,1,0)
+    iconFrame.BackgroundTransparency = 1
+    iconFrame.ZIndex                = 6
+    iconFrame.Parent                = btn
+
+    if iconType == "Close" then
+        local line1 = Instance.new("Frame")
+        line1.Size              = UDim2.new(0, 18, 0, 4)
+        line1.Position          = UDim2.new(0.5, -9, 0.5, -2)
+        line1.Rotation          = 45
+        line1.BackgroundColor3  = Color3.fromRGB(255, 80, 80)
+        line1.BorderSizePixel   = 0
+        line1.ZIndex            = 7
+        line1.Parent            = iconFrame
+        local c1 = Instance.new("UICorner") c1.CornerRadius = UDim.new(0,2) c1.Parent = line1
+        local line2 = line1:Clone()
+        line2.Rotation = -45
+        line2.Parent   = iconFrame
+        btn.MouseEnter:Connect(function()
+            line1.BackgroundColor3 = Color3.fromRGB(255,120,120)
+            line2.BackgroundColor3 = Color3.fromRGB(255,120,120)
+            btn.BackgroundColor3   = Color3.fromRGB(50,50,50)
+        end)
+        btn.MouseLeave:Connect(function()
+            line1.BackgroundColor3 = Color3.fromRGB(255,80,80)
+            line2.BackgroundColor3 = Color3.fromRGB(255,80,80)
+            btn.BackgroundColor3   = COLORS.Button
+        end)
+    elseif iconType == "Minimize" then
+        local line = Instance.new("Frame")
+        line.Size              = UDim2.new(0, 18, 0, 4)
+        line.Position          = UDim2.new(0.5, -9, 0.5, 0)
+        line.BackgroundColor3  = Color3.fromRGB(200, 200, 200)
+        line.BorderSizePixel   = 0
+        line.ZIndex            = 7
+        line.Parent            = iconFrame
+        local lc = Instance.new("UICorner") lc.CornerRadius = UDim.new(0,2) lc.Parent = line
+        btn.MouseEnter:Connect(function()
+            line.BackgroundColor3 = Color3.fromRGB(255,255,255)
+            btn.BackgroundColor3  = Color3.fromRGB(50,50,50)
+        end)
+        btn.MouseLeave:Connect(function()
+            line.BackgroundColor3 = Color3.fromRGB(200,200,200)
+            btn.BackgroundColor3  = COLORS.Button
+        end)
+    end
+
+    return btn
+end
+
+local MinBtn   = createIconButton("Minimize", 43)
+local CloseBtn = createIconButton("Close", 8)
+
+local Body = Instance.new("Frame")
+Body.Size                = UDim2.new(1,0,1,-HEADER_H)
+Body.Position            = UDim2.new(0,0,0,HEADER_H)
+Body.BackgroundTransparency = 1
+Body.Parent              = MainFrame
+
+local minimized = false
+MinBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    if minimized then
+        Body.Visible = false
+        TweenService:Create(MainFrame, TweenInfo.new(0.2), {Size = UDim2.new(0, width, 0, HEADER_H)}):Play()
+    else
+        TweenService:Create(MainFrame, TweenInfo.new(0.2), {Size = UDim2.new(0, width, 0, height)}):Play()
+        task.wait(0.2)
+        Body.Visible = true
+    end
+end)
+CloseBtn.MouseButton1Click:Connect(function()
+    ScriptSettings.AutoFarmEnabled = false
+    ScreenGui:Destroy()
+end)
+
+-- =====================================================================
+-- DRAGGING (PC + Mobile)
+-- =====================================================================
+local dragging  = false
+local dragInput = nil
+local dragStart = nil
+local startPos  = nil
+
+local DragBar = Instance.new("TextButton")
+DragBar.Size                = UDim2.new(1,-70,1,0)
+DragBar.BackgroundTransparency = 1
+DragBar.Text                = ""
+DragBar.ZIndex              = 10
+DragBar.Parent              = Header
+
+local function updateDrag(input)
+    if not dragging then return end
+    local delta = input.Position - dragStart
+    MainFrame.Position = UDim2.new(
+        startPos.X.Scale,
+        startPos.X.Offset + delta.X,
+        startPos.Y.Scale,
+        startPos.Y.Offset + delta.Y
+    )
+end
+
+DragBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging  = true
+        dragStart = input.Position
+        startPos  = MainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+DragBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        updateDrag(input)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+
+-- =====================================================================
+-- SIDEBAR + CONTENT
+-- =====================================================================
+local Sidebar = Instance.new("Frame")
+Sidebar.Size              = UDim2.new(0,150,1,0)
+Sidebar.BackgroundColor3  = COLORS.Sidebar
+Sidebar.BorderSizePixel   = 0
+Sidebar.Parent            = Body
+local Divider = Instance.new("Frame")
+Divider.Size              = UDim2.new(0,1,1,0)
+Divider.Position          = UDim2.new(1,-1,0,0)
+Divider.BackgroundColor3  = COLORS.Stroke
+Divider.BorderSizePixel   = 0
+Divider.Parent            = Sidebar
+
+local btnScroll = Instance.new("ScrollingFrame")
+btnScroll.Size                  = UDim2.new(1,0,0.85,0)
+btnScroll.BackgroundTransparency = 1
+btnScroll.BorderSizePixel       = 0
+btnScroll.ScrollBarThickness    = 3
+btnScroll.ScrollBarImageColor3  = COLORS.Stroke
+btnScroll.CanvasSize            = UDim2.new(0, 0, 0, 0)
+btnScroll.AutomaticCanvasSize   = Enum.AutomaticSize.Y
+btnScroll.ScrollingEnabled      = true
+btnScroll.HorizontalScrollBarInset = Enum.ScrollBarInset.None
+btnScroll.VerticalScrollBarInset   = Enum.ScrollBarInset.None
+btnScroll.Parent                = Sidebar
+
+local BtnContainer = Instance.new("Frame")
+BtnContainer.Size                = UDim2.new(1,0,0,0)
+BtnContainer.BackgroundTransparency = 1
+BtnContainer.Parent              = btnScroll
+local BtnLayout = Instance.new("UIListLayout")
+BtnLayout.SortOrder = Enum.SortOrder.LayoutOrder
+BtnLayout.Padding   = UDim.new(0,5)
+BtnLayout.Parent    = BtnContainer
+local BtnPad = Instance.new("UIPadding")
+BtnPad.PaddingTop    = UDim.new(0,20)
+BtnPad.PaddingLeft   = UDim.new(0,10)
+BtnPad.PaddingRight  = UDim.new(0,10)
+BtnPad.Parent        = BtnContainer
+
+local Content = Instance.new("Frame")
+Content.Size              = UDim2.new(1,-150,1,0)
+Content.Position          = UDim2.new(0,150,0,0)
+Content.BackgroundColor3  = COLORS.Background
+Content.BackgroundTransparency = 1
+Content.ClipsDescendants  = false
+Content.Parent            = Body
+local ContentPad = Instance.new("UIPadding")
+ContentPad.PaddingTop    = UDim.new(0,15)
+ContentPad.PaddingLeft   = UDim.new(0,15)
+ContentPad.PaddingRight  = UDim.new(0,15)
+ContentPad.PaddingBottom = UDim.new(0,15)
+ContentPad.Parent        = Content
+
+-- =====================================================================
+-- NOTIFICATIONS
+-- =====================================================================
+local NotifFrame = Instance.new("Frame")
+NotifFrame.Size              = UDim2.new(0,250,0,0)
+NotifFrame.Position          = UDim2.new(1,-260,1,-10)
+NotifFrame.BackgroundTransparency = 1
+NotifFrame.Parent            = ScreenGui
+local NotifLayout = Instance.new("UIListLayout")
+NotifLayout.Padding = UDim.new(0,5)
+NotifLayout.Parent  = NotifFrame
+
+local function notify(text, isClick)
+    local n = Instance.new("TextLabel")
+    n.Size                = UDim2.new(1,0,0,25)
+    n.BackgroundColor3    = COLORS.Sidebar
+    n.BackgroundTransparency = 0.2
+    n.TextColor3          = COLORS.Text
+    n.Font                = Enum.Font.GothamMedium
+    n.TextSize            = 14
+    n.TextXAlignment      = Enum.TextXAlignment.Left
+    n.Text                = "  " .. text .. (isClick and " (CLICK)" or "")
+    n.Parent              = NotifFrame
+    local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0,6) corner.Parent = n
+    task.spawn(function() task.wait(2) if n then n:Destroy() end end)
+end
+
+-- =====================================================================
+-- HELPERS: Toggle + Stepper
+-- =====================================================================
+local toggleRegistry = {}
+local function CreateToggle(parent, name, defaultVal, onFunc, offFunc)
+    local container = Instance.new("Frame")
+    container.Size              = UDim2.new(1,0,0,45)
+    container.BackgroundColor3  = COLORS.Sidebar
+    container.BackgroundTransparency = 0.5
+    container.Parent            = parent
+    local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0,6) corner.Parent = container
+
+    local label = Instance.new("TextLabel")
+    label.Size              = UDim2.new(0.7,0,1,0)
+    label.Position          = UDim2.new(0,10,0,0)
+    label.BackgroundTransparency = 1
+    label.Text              = name
+    label.TextColor3        = COLORS.Text
+    label.Font              = Enum.Font.GothamMedium
+    label.TextSize          = 14
+    label.TextXAlignment    = Enum.TextXAlignment.Left
+    label.Parent            = container
+
+    local sw = Instance.new("TextButton")
+    sw.Text             = ""
+    sw.Size             = UDim2.new(0,45,0,25)
+    sw.Position         = UDim2.new(1,-55,0.5,-12)
+    sw.BackgroundColor3 = defaultVal and Color3.fromRGB(50,200,50) or COLORS.Button
+    sw.BorderSizePixel  = 0
+    sw.AutoButtonColor  = false
+    sw.Parent           = container
+    local swCorner = Instance.new("UICorner") swCorner.CornerRadius = UDim.new(1,0) swCorner.Parent = sw
+
+    local handle = Instance.new("Frame")
+    handle.Size              = UDim2.new(0,20,0,20)
+    handle.BackgroundColor3  = COLORS.Text
+    handle.BorderSizePixel   = 0
+    handle.Parent            = sw
+    local hCorner = Instance.new("UICorner") hCorner.CornerRadius = UDim.new(1,0) hCorner.Parent = handle
+
+    local active   = defaultVal
+    local posOn    = UDim2.new(1,-22,0.5,-10)
+    local posOff   = UDim2.new(0,2,0.5,-10)
+    handle.Position = active and posOn or posOff
+
+    local function updateVis()
+        local targetColor = active and Color3.fromRGB(50,200,50) or COLORS.Button
+        local targetPos   = active and posOn or posOff
+        TweenService:Create(sw,     TweenInfo.new(0.15), {BackgroundColor3 = targetColor}):Play()
+        TweenService:Create(handle, TweenInfo.new(0.15), {Position = targetPos}):Play()
+    end
+
+    local function setValue(v, silent)
+        if active == v then return end
+        active = v
+        updateVis()
+        if not silent then
+            if active then pcall(onFunc) else pcall(offFunc) end
+        end
+    end
+
+    sw.MouseButton1Click:Connect(function() setValue(not active) end)
+    if defaultVal then updateVis() end
+    toggleRegistry[name] = setValue
+    return { setValue = setValue, getValue = function() return active end }
+end
+
+local stepperRegistry = {}
+local function CreateStepper(parent, labelText, minVal, maxVal, step, defaultValue, onChange)
+    local container = Instance.new("Frame")
+    container.Size              = UDim2.new(1,0,0,35)
+    container.BackgroundTransparency = 1
+    container.Parent            = parent
+
+    local label = Instance.new("TextLabel")
+    label.Size              = UDim2.new(0.6,0,1,0)
+    label.Position          = UDim2.new(0,5,0,0)
+    label.BackgroundTransparency = 1
+    label.Text              = labelText .. defaultValue
+    label.TextColor3        = COLORS.Text
+    label.Font              = Enum.Font.Gotham
+    label.TextSize          = 12
+    label.TextXAlignment    = Enum.TextXAlignment.Left
+    label.Parent            = container
+
+    local minus = Instance.new("TextButton")
+    minus.Size              = UDim2.new(0,30,0,25)
+    minus.Position          = UDim2.new(0.65,0,0.5,-12)
+    minus.Text              = "-"
+    minus.BackgroundColor3  = COLORS.Button
+    minus.TextColor3        = COLORS.Text
+    minus.Font              = Enum.Font.GothamBold
+    minus.Parent            = container
+    local minusCorner = Instance.new("UICorner") minusCorner.CornerRadius = UDim.new(0,4) minusCorner.Parent = minus
+
+    local valLabel = Instance.new("TextLabel")
+    valLabel.Size              = UDim2.new(0,50,0,25)
+    valLabel.Position          = UDim2.new(0.75,0,0.5,-12)
+    valLabel.BackgroundColor3  = COLORS.Button
+    valLabel.Text              = tostring(defaultValue)
+    valLabel.TextColor3        = COLORS.Text
+    valLabel.Font              = Enum.Font.Gotham
+    valLabel.TextSize          = 12
+    valLabel.Parent            = container
+    local valCorner = Instance.new("UICorner") valCorner.CornerRadius = UDim.new(0,4) valCorner.Parent = valLabel
+
+    local plus = Instance.new("TextButton")
+    plus.Size              = UDim2.new(0,30,0,25)
+    plus.Position          = UDim2.new(0.85,0,0.5,-12)
+    plus.Text              = "+"
+    plus.BackgroundColor3  = COLORS.Button
+    plus.TextColor3        = COLORS.Text
+    plus.Font              = Enum.Font.GothamBold
+    plus.Parent            = container
+    local plusCorner = Instance.new("UICorner") plusCorner.CornerRadius = UDim.new(0,4) plusCorner.Parent = plus
+
+    local current = math.clamp(defaultValue, minVal, maxVal)
+
+    local function updateUI()
+        if step >= 1 then
+            valLabel.Text = string.format("%d", current)
+        else
+            valLabel.Text = string.format("%.1f", current)
+        end
+        label.Text = labelText .. current
+    end
+
+    local function setValue(v, silent)
+        v = math.clamp(v, minVal, maxVal)
+        if math.abs(v - current) > 0.001 then
+            current = v
+            updateUI()
+            if not silent and onChange then onChange(current) end
+        end
+    end
+
+    minus.MouseButton1Click:Connect(function() setValue(current - step) end)
+    plus.MouseButton1Click:Connect(function() setValue(current + step) end)
+    updateUI()
+    local api = { setValue = setValue, getValue = function() return current end }
+    stepperRegistry[labelText] = api
+    return api
+end
+
+-- =====================================================================
+-- TABS
+-- =====================================================================
+local tabs = {}
+local function CreateTab(name, title)
+    local btn = Instance.new("TextButton")
+    btn.Size             = UDim2.new(1,0,0,36)
+    btn.BackgroundColor3 = COLORS.Button
+    btn.Text             = title
+    btn.TextColor3       = COLORS.TextDark
+    btn.Font             = Enum.Font.GothamMedium
+    btn.TextSize         = 14
+    btn.AutoButtonColor  = false
+    btn.Parent           = BtnContainer
+    local corner = Instance.new("UICorner") corner.CornerRadius = UDim.new(0,6) corner.Parent = btn
+
+    local page = Instance.new("ScrollingFrame")
+    page.Size                  = UDim2.new(1,0,1,0)
+    page.BackgroundTransparency = 1
+    page.BorderSizePixel       = 0
+    page.ScrollBarThickness    = 5
+    page.ScrollBarImageColor3  = COLORS.Stroke
+    page.CanvasSize            = UDim2.new(0, 0, 0, 0)
+    page.AutomaticCanvasSize   = Enum.AutomaticSize.Y
+    page.ScrollingEnabled      = true
+    page.Visible               = false
+    page.Parent                = Content
+    page.HorizontalScrollBarInset = Enum.ScrollBarInset.None
+    page.VerticalScrollBarInset   = Enum.ScrollBarInset.ScrollBar
+
+    local pageLayout = Instance.new("UIListLayout")
+    pageLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    pageLayout.Padding   = UDim.new(0, 8)
+    pageLayout.Parent    = page
+
+    local pagePadding = Instance.new("UIPadding")
+    pagePadding.PaddingTop    = UDim.new(0, 10)
+    pagePadding.PaddingBottom = UDim.new(0, 10)
+    pagePadding.PaddingLeft   = UDim.new(0, 5)
+    pagePadding.PaddingRight  = UDim.new(0, 15)
+    pagePadding.Parent        = page
+
+    btn.MouseButton1Click:Connect(function()
+        for _, t in pairs(tabs) do
+            TweenService:Create(t.btn, TweenInfo.new(0.2), {BackgroundColor3 = COLORS.Button, TextColor3 = COLORS.TextDark}):Play()
+            t.page.Visible = false
+        end
+        TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = COLORS.ButtonSelected, TextColor3 = COLORS.Text}):Play()
+        page.Visible = true
+    end)
+
+    tabs[name] = {btn = btn, page = page}
+    return page
+end
+
+local homeTab     = CreateTab("Home",     "Home")
+local autoFarmTab = CreateTab("AutoFarm", "AutoFarm")
+local configTab   = CreateTab("Config",   "Config")
+
+-- =====================================================================
+-- HOME TAB
+-- =====================================================================
+local welcome = Instance.new("TextLabel")
+welcome.Size              = UDim2.new(1, -20, 0, 50)
+welcome.BackgroundTransparency = 1
+welcome.Text              = "Hello, " .. LocalPlayer.Name
+welcome.TextColor3        = COLORS.Text
+welcome.Font              = Enum.Font.GothamBold
+welcome.TextSize          = 20
+welcome.TextXAlignment    = Enum.TextXAlignment.Center
+welcome.Parent            = homeTab
+
+local subtitle = Instance.new("TextLabel")
+subtitle.Size              = UDim2.new(1, -20, 0, 40)
+subtitle.BackgroundTransparency = 1
+subtitle.Text              = "Brainrot AutoFarm for Kick a Lucky Block"
+subtitle.TextColor3        = COLORS.Text
+subtitle.Font              = Enum.Font.Gotham
+subtitle.TextSize          = 14
+subtitle.TextXAlignment    = Enum.TextXAlignment.Center
+subtitle.TextYAlignment    = Enum.TextYAlignment.Top
+subtitle.Parent            = homeTab
+
+local hint = Instance.new("TextLabel")
+hint.Size              = UDim2.new(1, -20, 0, 40)
+hint.BackgroundTransparency = 1
+hint.Text              = "Open the AutoFarm tab to start. Press " ..
+                          tostring(SETTINGS.ToggleKey):gsub("Enum.KeyCode.", "") ..
+                          " to toggle the menu."
+hint.TextColor3        = COLORS.TextDark
+hint.Font              = Enum.Font.Gotham
+hint.TextSize          = 13
+hint.TextXAlignment    = Enum.TextXAlignment.Center
+hint.TextYAlignment    = Enum.TextYAlignment.Top
+hint.TextWrapped       = true
+hint.Parent            = homeTab
+
+-- =====================================================================
+-- AUTOFARM TAB
+-- =====================================================================
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size              = UDim2.new(1, -10, 0, 25)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text              = "Status: Disabled"
+statusLabel.TextColor3        = COLORS.TextDark
+statusLabel.Font              = Enum.Font.GothamMedium
+statusLabel.TextSize          = 13
+statusLabel.TextXAlignment    = Enum.TextXAlignment.Left
+statusLabel.LayoutOrder       = 0
+statusLabel.Parent            = autoFarmTab
+
+local function updateStatusLabel()
+    if ScriptSettings.AutoFarmEnabled then
+        statusLabel.Text       = "Status: Enabled"
+        statusLabel.TextColor3 = Color3.fromRGB(120, 220, 120)
+    else
+        statusLabel.Text       = "Status: Disabled"
+        statusLabel.TextColor3 = COLORS.TextDark
     end
 end
 
--- ========== МЕНЮ ==========
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "BrainrotFarmGUI"
-screenGui.Parent = player:WaitForChild("PlayerGui")
-
-local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 220, 0, 110)
-mainFrame.Position = UDim2.new(0, 15, 0, 15)
-mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-mainFrame.BackgroundTransparency = 0.4
-mainFrame.BorderSizePixel = 0
-mainFrame.Parent = screenGui
-
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(0, 200, 0, 40)
-toggleBtn.Position = UDim2.new(0, 10, 0, 10)
-toggleBtn.Text = "▶ Включить фарм"
-toggleBtn.TextColor3 = Color3.new(1, 1, 1)
-toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 0)
-toggleBtn.BorderSizePixel = 0
-toggleBtn.Parent = mainFrame
-
-local statusLabel = Instance.new("TextLabel")
-statusLabel.Size = UDim2.new(0, 200, 0, 30)
-statusLabel.Position = UDim2.new(0, 10, 0, 65)
-statusLabel.Text = "Статус: ● Выключен"
-statusLabel.TextColor3 = Color3.new(1, 1, 1)
-statusLabel.BackgroundTransparency = 1
-statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-statusLabel.Parent = mainFrame
-
-toggleBtn.MouseButton1Click:Connect(function()
-    isEnabled = not isEnabled
-    if isEnabled then
-        toggleBtn.Text = "⏹ Выключить фарм"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
-        statusLabel.Text = "Статус: ● Включён"
-        firstRun = true
+local autoFarmToggle
+autoFarmToggle = CreateToggle(autoFarmTab, "Enable AutoFarm", ScriptSettings.AutoFarmEnabled,
+    function()
+        ScriptSettings.AutoFarmEnabled = true
+        firstRun  = true
         isCycling = false
+        updateStatusLabel()
+        notify("AutoFarm enabled", false)
         task.spawn(farmLoop)
-    else
-        toggleBtn.Text = "▶ Включить фарм"
-        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 0)
-        statusLabel.Text = "Статус: ● Выключен"
+    end,
+    function()
+        ScriptSettings.AutoFarmEnabled = false
         isCycling = false
+        updateStatusLabel()
+        notify("AutoFarm disabled", false)
+    end)
+
+local verticalStepper = CreateStepper(autoFarmTab, "Vertical offset: ", 1, 20, 1, ScriptSettings.VerticalOffset, function(v)
+    ScriptSettings.VerticalOffset = v
+end)
+
+local kickWaitStepper = CreateStepper(autoFarmTab, "Kick wait (s): ", 1, 30, 1, ScriptSettings.KickWaitSeconds, function(v)
+    ScriptSettings.KickWaitSeconds = v
+end)
+
+local smoothStepper = CreateStepper(autoFarmTab, "Smooth return (s): ", 1, 15, 1, ScriptSettings.SmoothTeleportDuration, function(v)
+    ScriptSettings.SmoothTeleportDuration = v
+end)
+
+local infoLabel = Instance.new("TextLabel")
+infoLabel.Size              = UDim2.new(1, -10, 0, 60)
+infoLabel.BackgroundTransparency = 1
+infoLabel.Text              = "Stand near Lobby.Safe and toggle AutoFarm on. "
+                              .. "The script will teleport above Safe, fire KickEvent, "
+                              .. "wait, and return smoothly. Adjust offset and timing above."
+infoLabel.TextColor3        = COLORS.TextDark
+infoLabel.Font              = Enum.Font.Gotham
+infoLabel.TextSize          = 12
+infoLabel.TextXAlignment    = Enum.TextXAlignment.Left
+infoLabel.TextYAlignment    = Enum.TextYAlignment.Top
+infoLabel.TextWrapped       = true
+infoLabel.Parent            = autoFarmTab
+
+-- =====================================================================
+-- CONFIG SYSTEM
+-- =====================================================================
+local useFS = false
+do
+    local hasFS = isfolder and makefolder and listfiles and writefile and readfile and delfile and isfile
+    if hasFS then useFS = true end
+end
+getgenv()._KickALuckyConfigs  = getgenv()._KickALuckyConfigs or {}
+local globalCfgs              = getgenv()._KickALuckyConfigs
+local CFG_FOLDER              = "KickALuckyConfigs"
+
+local function saveCfg(name, data)
+    if useFS then
+        if not isfolder(CFG_FOLDER) then makefolder(CFG_FOLDER) end
+        return pcall(writefile, CFG_FOLDER.."/"..name..".json", HttpService:JSONEncode(data))
+    else
+        globalCfgs[name] = data
+        return true
+    end
+end
+
+local function loadCfg(name)
+    if useFS then
+        local ok, cont = pcall(readfile, CFG_FOLDER.."/"..name..".json")
+        if ok and cont then
+            local decoded
+            local okDecode = pcall(function() decoded = HttpService:JSONDecode(cont) end)
+            if okDecode then return decoded end
+        end
+        return nil
+    else
+        return globalCfgs[name]
+    end
+end
+
+local function listCfgs()
+    if useFS then
+        if not isfolder(CFG_FOLDER) then return {} end
+        local names = {}
+        local ok, files = pcall(listfiles, CFG_FOLDER)
+        if not ok or not files then return {} end
+        for _, f in ipairs(files) do
+            local n = f:match("([^/\\]+)%.json$")
+            if n then table.insert(names, n) end
+        end
+        return names
+    else
+        local names = {}
+        for n in pairs(globalCfgs) do table.insert(names, n) end
+        return names
+    end
+end
+
+local function delCfg(name)
+    if useFS then
+        if isfile(CFG_FOLDER.."/"..name..".json") then
+            return pcall(delfile, CFG_FOLDER.."/"..name..".json")
+        end
+        return true
+    else
+        globalCfgs[name] = nil
+        return true
+    end
+end
+
+local function getAuto()
+    if useFS then
+        if isfolder(CFG_FOLDER) and isfile(CFG_FOLDER.."/autoload.txt") then
+            local n = readfile(CFG_FOLDER.."/autoload.txt"):gsub("\n","")
+            if n ~= "" then
+                for _, c in ipairs(listCfgs()) do if c == n then return n end end
+            end
+        end
+        return nil
+    else
+        return getgenv()._KickALuckyAutoload
+    end
+end
+
+local function setAuto(name)
+    if useFS then
+        if not isfolder(CFG_FOLDER) then makefolder(CFG_FOLDER) end
+        writefile(CFG_FOLDER.."/autoload.txt", name)
+    else
+        getgenv()._KickALuckyAutoload = name
+    end
+end
+
+local function delAuto()
+    if useFS then
+        if isfolder(CFG_FOLDER) and isfile(CFG_FOLDER.."/autoload.txt") then
+            delfile(CFG_FOLDER.."/autoload.txt")
+        end
+    else
+        getgenv()._KickALuckyAutoload = nil
+    end
+end
+
+local function createConfig(name)
+    if name == nil or name == "" then return false end
+    local data = {
+        AutoFarmEnabled        = ScriptSettings.AutoFarmEnabled,
+        VerticalOffset         = ScriptSettings.VerticalOffset,
+        KickWaitSeconds        = ScriptSettings.KickWaitSeconds,
+        SmoothTeleportDuration = ScriptSettings.SmoothTeleportDuration,
+    }
+    return saveCfg(name, data)
+end
+
+local function applySettingsToUI()
+    if verticalStepper then verticalStepper.setValue(ScriptSettings.VerticalOffset, true) end
+    if kickWaitStepper then kickWaitStepper.setValue(ScriptSettings.KickWaitSeconds, true) end
+    if smoothStepper   then smoothStepper.setValue(ScriptSettings.SmoothTeleportDuration, true) end
+    if autoFarmToggle  then autoFarmToggle.setValue(ScriptSettings.AutoFarmEnabled, true) end
+    updateStatusLabel()
+end
+
+local function loadConfig(name)
+    local data = loadCfg(name)
+    if type(data) ~= "table" then return false end
+
+    if type(data.VerticalOffset)         == "number" then ScriptSettings.VerticalOffset         = data.VerticalOffset end
+    if type(data.KickWaitSeconds)        == "number" then ScriptSettings.KickWaitSeconds        = data.KickWaitSeconds end
+    if type(data.SmoothTeleportDuration) == "number" then ScriptSettings.SmoothTeleportDuration = data.SmoothTeleportDuration end
+    local desiredEnabled = data.AutoFarmEnabled == true
+
+    applySettingsToUI()
+
+    if desiredEnabled and not ScriptSettings.AutoFarmEnabled then
+        ScriptSettings.AutoFarmEnabled = true
+        firstRun  = true
+        isCycling = false
+        if autoFarmToggle then autoFarmToggle.setValue(true, true) end
+        updateStatusLabel()
+        task.spawn(farmLoop)
+    elseif (not desiredEnabled) and ScriptSettings.AutoFarmEnabled then
+        ScriptSettings.AutoFarmEnabled = false
+        isCycling = false
+        if autoFarmToggle then autoFarmToggle.setValue(false, true) end
+        updateStatusLabel()
+    end
+
+    return true
+end
+
+-- =====================================================================
+-- CONFIG TAB UI
+-- =====================================================================
+local nameBox = Instance.new("TextBox")
+nameBox.Size              = UDim2.new(1,0,0,30)
+nameBox.PlaceholderText   = "Config name"
+nameBox.BackgroundColor3  = COLORS.Button
+nameBox.TextColor3        = COLORS.Text
+nameBox.Font              = Enum.Font.Gotham
+nameBox.TextSize          = 14
+nameBox.Text              = ""
+nameBox.ClearTextOnFocus  = false
+nameBox.Parent            = configTab
+local nameCorner = Instance.new("UICorner") nameCorner.CornerRadius = UDim.new(0,6) nameCorner.Parent = nameBox
+
+local createBtn = Instance.new("TextButton")
+createBtn.Size              = UDim2.new(1,0,0,30)
+createBtn.Text              = "Create Config"
+createBtn.BackgroundColor3  = COLORS.Button
+createBtn.TextColor3        = COLORS.Text
+createBtn.Font              = Enum.Font.GothamBold
+createBtn.TextSize          = 14
+createBtn.Parent            = configTab
+local createCorner = Instance.new("UICorner") createCorner.CornerRadius = UDim.new(0,6) createCorner.Parent = createBtn
+
+local listFrame = Instance.new("ScrollingFrame")
+listFrame.Size                = UDim2.new(1,0,0,120)
+listFrame.BackgroundColor3    = COLORS.Sidebar
+listFrame.BackgroundTransparency = 0.5
+listFrame.BorderSizePixel     = 0
+listFrame.ScrollBarThickness  = 4
+listFrame.CanvasSize          = UDim2.new(0,0,0,0)
+listFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+listFrame.Parent              = configTab
+local listFrameCorner = Instance.new("UICorner") listFrameCorner.CornerRadius = UDim.new(0,6) listFrameCorner.Parent = listFrame
+local listLayout = Instance.new("UIListLayout")
+listLayout.SortOrder = Enum.SortOrder.Name
+listLayout.Padding   = UDim.new(0,4)
+listLayout.Parent    = listFrame
+local listPad = Instance.new("UIPadding")
+listPad.PaddingTop  = UDim.new(0,5)
+listPad.PaddingLeft = UDim.new(0,5)
+listPad.Parent      = listFrame
+
+local selectedLabel = Instance.new("TextLabel")
+selectedLabel.Size              = UDim2.new(1,0,0,25)
+selectedLabel.BackgroundColor3  = COLORS.Sidebar
+selectedLabel.BackgroundTransparency = 0.5
+selectedLabel.Text              = "Selected: -"
+selectedLabel.TextColor3        = COLORS.Text
+selectedLabel.Font              = Enum.Font.Gotham
+selectedLabel.TextSize          = 13
+selectedLabel.Parent            = configTab
+local selCorner = Instance.new("UICorner") selCorner.CornerRadius = UDim.new(0,4) selCorner.Parent = selectedLabel
+
+local loadBtn = Instance.new("TextButton")
+loadBtn.Size              = UDim2.new(1,0,0,30)
+loadBtn.Text              = "Load Selected Config"
+loadBtn.BackgroundColor3  = COLORS.Button
+loadBtn.TextColor3        = COLORS.Text
+loadBtn.Font              = Enum.Font.GothamBold
+loadBtn.TextSize          = 14
+loadBtn.Parent            = configTab
+local loadCorner = Instance.new("UICorner") loadCorner.CornerRadius = UDim.new(0,6) loadCorner.Parent = loadBtn
+
+local autoContainer = Instance.new("Frame")
+autoContainer.Size              = UDim2.new(1,0,0,30)
+autoContainer.BackgroundTransparency = 1
+autoContainer.Parent            = configTab
+
+local setAutoBtn = Instance.new("TextButton")
+setAutoBtn.Size              = UDim2.new(0.48,0,1,0)
+setAutoBtn.Position          = UDim2.new(0,0,0,0)
+setAutoBtn.Text              = "Set Autoload"
+setAutoBtn.BackgroundColor3  = COLORS.Button
+setAutoBtn.TextColor3        = COLORS.Text
+setAutoBtn.Font              = Enum.Font.GothamBold
+setAutoBtn.TextSize          = 13
+setAutoBtn.Parent            = autoContainer
+local setCorner = Instance.new("UICorner") setCorner.CornerRadius = UDim.new(0,6) setCorner.Parent = setAutoBtn
+
+local delAutoBtn = Instance.new("TextButton")
+delAutoBtn.Size              = UDim2.new(0.48,0,1,0)
+delAutoBtn.Position          = UDim2.new(0.52,0,0,0)
+delAutoBtn.Text              = "Delete Autoload"
+delAutoBtn.BackgroundColor3  = COLORS.Button
+delAutoBtn.TextColor3        = COLORS.Text
+delAutoBtn.Font              = Enum.Font.GothamBold
+delAutoBtn.TextSize          = 13
+delAutoBtn.Parent            = autoContainer
+local delCorner = Instance.new("UICorner") delCorner.CornerRadius = UDim.new(0,6) delCorner.Parent = delAutoBtn
+
+local delConfigBtn = Instance.new("TextButton")
+delConfigBtn.Size              = UDim2.new(1,0,0,30)
+delConfigBtn.Text              = "Delete Selected Config"
+delConfigBtn.BackgroundColor3  = Color3.fromRGB(150,40,40)
+delConfigBtn.TextColor3        = COLORS.Text
+delConfigBtn.Font              = Enum.Font.GothamBold
+delConfigBtn.TextSize          = 14
+delConfigBtn.Parent            = configTab
+local delCfgCorner = Instance.new("UICorner") delCfgCorner.CornerRadius = UDim.new(0,6) delCfgCorner.Parent = delConfigBtn
+
+nameBox.LayoutOrder        = 1
+createBtn.LayoutOrder      = 2
+listFrame.LayoutOrder      = 3
+selectedLabel.LayoutOrder  = 4
+loadBtn.LayoutOrder        = 5
+autoContainer.LayoutOrder  = 6
+delConfigBtn.LayoutOrder   = 7
+
+local selectedConfig = nil
+local refreshList
+
+createBtn.MouseButton1Click:Connect(function()
+    local n = nameBox.Text:gsub("^%s*(.-)%s*$","%1")
+    if n == "" then notify("Enter a name", true) return end
+    if createConfig(n) then
+        notify("Config '"..n.."' saved", true)
+        if refreshList then refreshList() end
+        nameBox.Text = ""
+    else
+        notify("Save failed", true)
     end
 end)
+
+refreshList = function()
+    for _, ch in ipairs(listFrame:GetChildren()) do
+        if ch:IsA("TextButton") or ch:IsA("TextLabel") then ch:Destroy() end
+    end
+    local cfgs = listCfgs()
+    local autoName = getAuto()
+    if #cfgs == 0 then
+        local empty = Instance.new("TextLabel")
+        empty.Size              = UDim2.new(1,-10,0,30)
+        empty.BackgroundTransparency = 1
+        empty.Text              = "No saved configs"
+        empty.TextColor3        = COLORS.TextDark
+        empty.Font              = Enum.Font.Gotham
+        empty.TextSize          = 13
+        empty.Parent            = listFrame
+    else
+        for _, cfg in ipairs(cfgs) do
+            local b = Instance.new("TextButton")
+            b.Size              = UDim2.new(1,-10,0,30)
+            b.Text              = cfg .. (autoName == cfg and " [AUTOLOAD]" or "")
+            b.BackgroundColor3  = (cfg == selectedConfig) and COLORS.ButtonSelected or COLORS.Button
+            b.TextColor3        = COLORS.Text
+            b.Font              = Enum.Font.Gotham
+            b.TextSize          = 13
+            b.AutoButtonColor   = false
+            b.Parent            = listFrame
+            local c = Instance.new("UICorner") c.CornerRadius = UDim.new(0,4) c.Parent = b
+            b.MouseEnter:Connect(function()
+                if cfg ~= selectedConfig then b.BackgroundColor3 = COLORS.ButtonSelected end
+            end)
+            b.MouseLeave:Connect(function()
+                if cfg ~= selectedConfig then b.BackgroundColor3 = COLORS.Button end
+            end)
+            b.MouseButton1Click:Connect(function()
+                selectedLabel.Text = "Selected: " .. cfg
+                selectedConfig     = cfg
+                for _, child in ipairs(listFrame:GetChildren()) do
+                    if child:IsA("TextButton") then
+                        child.BackgroundColor3 = COLORS.Button
+                    end
+                end
+                b.BackgroundColor3 = COLORS.ButtonSelected
+            end)
+        end
+    end
+end
+
+loadBtn.MouseButton1Click:Connect(function()
+    if selectedConfig then
+        if loadConfig(selectedConfig) then
+            notify("Config '"..selectedConfig.."' loaded", true)
+            refreshList()
+        else
+            notify("Load failed", true)
+        end
+    else
+        notify("Select a config", true)
+    end
+end)
+
+setAutoBtn.MouseButton1Click:Connect(function()
+    if selectedConfig then
+        setAuto(selectedConfig)
+        notify("Autoload set to "..selectedConfig, true)
+        refreshList()
+    else
+        notify("Select a config", true)
+    end
+end)
+
+delAutoBtn.MouseButton1Click:Connect(function()
+    delAuto()
+    notify("Autoload removed", true)
+    refreshList()
+end)
+
+delConfigBtn.MouseButton1Click:Connect(function()
+    if selectedConfig then
+        if delCfg(selectedConfig) then
+            notify("Config '"..selectedConfig.."' deleted", true)
+            if getAuto() == selectedConfig then delAuto() end
+            selectedConfig = nil
+            selectedLabel.Text = "Selected: -"
+            refreshList()
+        else
+            notify("Delete failed", true)
+        end
+    else
+        notify("Select a config", true)
+    end
+end)
+
+refreshList()
+
+-- Autoload on script start (does not auto-enable farm unless saved as enabled)
+do
+    local autoStart = getAuto()
+    if autoStart then pcall(loadConfig, autoStart) end
+end
+
+-- =====================================================================
+-- PROFILE (sidebar bottom)
+-- =====================================================================
+local Profile = Instance.new("Frame")
+Profile.Size              = UDim2.new(1,0,0,50)
+Profile.Position          = UDim2.new(0,0,1,-50)
+Profile.BackgroundTransparency = 1
+Profile.Parent            = Sidebar
+local ProfPic = Instance.new("ImageLabel")
+ProfPic.Size              = UDim2.new(0,30,0,30)
+ProfPic.Position          = UDim2.new(0,15,0.5,-15)
+ProfPic.Image             = SETTINGS.ProfileImage
+ProfPic.BackgroundColor3  = COLORS.Button
+ProfPic.Parent            = Profile
+local PicCorner = Instance.new("UICorner") PicCorner.CornerRadius = UDim.new(1,0) PicCorner.Parent = ProfPic
+local ProfName = Instance.new("TextLabel")
+ProfName.Size              = UDim2.new(0,100,1,0)
+ProfName.Position          = UDim2.new(0,55,0,0)
+ProfName.BackgroundTransparency = 1
+ProfName.Text              = LocalPlayer.Name
+ProfName.TextColor3        = COLORS.Text
+ProfName.Font              = Enum.Font.GothamBold
+ProfName.TextSize          = 14
+ProfName.TextXAlignment    = Enum.TextXAlignment.Left
+ProfName.Parent            = Profile
+
+-- =====================================================================
+-- ACTIVATE FIRST TAB + TOGGLE + CLEANUP
+-- =====================================================================
+if tabs["Home"] then
+    TweenService:Create(tabs["Home"].btn, TweenInfo.new(0.2), {BackgroundColor3 = COLORS.ButtonSelected, TextColor3 = COLORS.Text}):Play()
+    tabs["Home"].page.Visible = true
+end
+
+UserInputService.InputBegan:Connect(function(inp, gp)
+    if gp then return end
+    if inp.KeyCode == SETTINGS.ToggleKey then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
+
+ScreenGui.Destroying:Connect(function()
+    ScriptSettings.AutoFarmEnabled = false
+end)
+
+print("[Kick a Lucky] AutoFarm menu loaded. Press " ..
+    tostring(SETTINGS.ToggleKey):gsub("Enum.KeyCode.", "") ..
+    " to toggle the menu.")
