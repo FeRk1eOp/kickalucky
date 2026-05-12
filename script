@@ -154,6 +154,21 @@ local function smoothTeleportCharacter(character, duration)
     return true
 end
 
+-- Снапнуть персонажа ровно на верхнюю грань Safe (без verticalOffset),
+-- чтобы в момент вызова KickEvent персонаж был физически на платформе,
+-- а не в воздухе после плавного возврата.
+local function snapToSafeSurface(character)
+    if not ensurePrimaryPart(character) then return false end
+    local safePart = getSafePartOrNil()
+    if not safePart then return false end
+    local pos     = safePart.Position + Vector3.new(0, safePart.Size.Y / 2 + 2, 0)
+    local current = character.PrimaryPart.CFrame
+    -- Сохраняем ориентацию, меняем только позицию.
+    character:SetPrimaryPartCFrame(current + (pos - current.Position))
+    zeroVelocity(character.PrimaryPart)
+    return true
+end
+
 -- Проверка: игрок стоит на/над Safe (по XZ-проекции колонны Safe + допуск по Y).
 -- Использует размер Safe, чтобы корректно работать на любой толщине платформы,
 -- а не только когда игрок ровно в 5 студах от точки (Safe + offset).
@@ -239,6 +254,12 @@ local function farmLoop()
             task.wait(1)
             continue
         end
+
+        -- Прямо перед киком снапаем на саму поверхность Safe и обнуляем скорость,
+        -- чтобы сервер гарантированно засчитал игрока как "в Safe" (иначе после smoothTeleport
+        -- он оказывается в воздухе на verticalOffset, и кик работает раз через раз).
+        snapToSafeSurface(character)
+        task.wait(0.1)
 
         pcall(function() kickEvent:FireServer(1) end)
         print(("[Brainrot] KickEvent отправлен, ждём %d секунд..."):format(ScriptSettings.KickWaitSeconds))
