@@ -87,11 +87,22 @@ local function ensurePrimaryPart(character)
     return false
 end
 
+-- Обнулить линейную/угловую скорость HRP, чтобы персонажа не сносило
+-- остаточным импульсом после телепорта / Knock.
+local function zeroVelocity(part)
+    if not part then return end
+    pcall(function() part.AssemblyLinearVelocity  = Vector3.zero end)
+    pcall(function() part.AssemblyAngularVelocity = Vector3.zero end)
+    pcall(function() part.Velocity    = Vector3.new(0, 0, 0) end)
+    pcall(function() part.RotVelocity = Vector3.new(0, 0, 0) end)
+end
+
 local function teleportWholeCharacter(character)
     if not ensurePrimaryPart(character) then return end
     local target = getTargetCFrame()
     if not target then return end
     character:SetPrimaryPartCFrame(target)
+    zeroVelocity(character.PrimaryPart)
     print(("[Brainrot] Мгновенный теп в Safe (выше на %d)"):format(ScriptSettings.VerticalOffset))
 end
 
@@ -100,16 +111,22 @@ local function smoothTeleportCharacter(character, duration)
     local target = getTargetCFrame()
     if not target then return false end
 
+    local hrp               = character.PrimaryPart
     local humanoid          = character:FindFirstChildOfClass("Humanoid")
     local wasPlatformStand  = humanoid and humanoid.PlatformStand or false
     local wasAutoRotate     = humanoid and humanoid.AutoRotate or false
+    local wasAnchored       = hrp.Anchored
 
     if humanoid then
         humanoid.PlatformStand = true
         humanoid.AutoRotate    = false
     end
+    -- Анкорим HRP, чтобы физика не стаскивала персонажа в сторону
+    -- пока идёт плавный возврат.
+    hrp.Anchored = true
+    zeroVelocity(hrp)
 
-    local startCFrame = character.PrimaryPart.CFrame
+    local startCFrame = hrp.CFrame
     local startTime   = tick()
     duration          = math.max(duration or 0, 0.05)
 
@@ -123,8 +140,12 @@ local function smoothTeleportCharacter(character, duration)
 
     if character.PrimaryPart then
         character:SetPrimaryPartCFrame(target)
+        zeroVelocity(character.PrimaryPart)
     end
 
+    if character.PrimaryPart then
+        character.PrimaryPart.Anchored = wasAnchored
+    end
     if humanoid then
         humanoid.PlatformStand = wasPlatformStand
         humanoid.AutoRotate    = wasAutoRotate
@@ -829,9 +850,8 @@ end)
 local infoLabel = Instance.new("TextLabel")
 infoLabel.Size              = UDim2.new(1, -10, 0, 60)
 infoLabel.BackgroundTransparency = 1
-infoLabel.Text              = "Stand near Lobby.Safe and toggle AutoFarm on. "
-                              .. "The script will teleport above Safe, fire KickEvent, "
-                              .. "wait, and return smoothly. Adjust offset and timing above."
+infoLabel.Text              = "Recommendation for successful autofarm: "
+                              .. "Vertical Offset - 7, Kick Wait - 14 seconds, Smooth Return - 8"
 infoLabel.TextColor3        = COLORS.TextDark
 infoLabel.Font              = Enum.Font.Gotham
 infoLabel.TextSize          = 12
