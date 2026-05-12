@@ -1,5 +1,5 @@
 -- Kick a Lucky Block – Brainrot AutoFarm Menu
--- Tabs: Home, AutoFarm, Base Function, Config
+-- Tabs: Home, Automation, Base Function, Config
 -- Adapted from Fer4ixz ScriptHub V28 menu framework (drag, sidebar, scrollable tabs, notify, config system).
 
 local Players                = game:GetService("Players")
@@ -47,6 +47,9 @@ local ScriptSettings = {
     AutoCollectEnabled     = false,
     AutoUpgradeEnabled     = false,
     AutoUpgradePlace       = 1,    -- 1..10
+
+    -- Automation tab
+    AutoBonusEnabled       = false,
 }
 
 -- =====================================================================
@@ -346,6 +349,60 @@ local function autoUpgradeLoop()
 end
 
 -- =====================================================================
+-- AUTOBONUS CORE
+-- =====================================================================
+-- Кнопка бонуса при прокачке: PlayerGui.KickUpgrades:GetChildren()[4].
+local function getBonusButtonOrNil()
+    local pg = LocalPlayer:FindFirstChild("PlayerGui")
+    if not pg then return nil end
+    local ku = pg:FindFirstChild("KickUpgrades")
+    if not ku then return nil end
+    local children = ku:GetChildren()
+    local btn = children[4]
+    if not btn then return nil end
+    if not btn:IsA("GuiButton") then return nil end
+    return btn
+end
+
+-- Нажатие на GuiButton через все доступные API эксплоитов, чтобы работало в разных.
+local function clickGuiButton(btn)
+    if not btn then return end
+    local signals = { btn.Activated, btn.MouseButton1Click, btn.MouseButton1Down, btn.MouseButton1Up }
+    for _, sig in ipairs(signals) do
+        pcall(function()
+            if firesignal then firesignal(sig) end
+        end)
+    end
+    pcall(function()
+        if getconnections then
+            for _, sig in ipairs(signals) do
+                for _, conn in ipairs(getconnections(sig)) do
+                    if conn.Fire then
+                        pcall(function() conn:Fire() end)
+                    elseif conn.Function then
+                        pcall(conn.Function)
+                    end
+                end
+            end
+        end
+    end)
+end
+
+local autoBonusLoopRunning = false
+local function autoBonusLoop()
+    if autoBonusLoopRunning then return end
+    autoBonusLoopRunning = true
+    while ScriptSettings.AutoBonusEnabled do
+        local btn = getBonusButtonOrNil()
+        if btn then
+            clickGuiButton(btn)
+        end
+        task.wait(0.3)
+    end
+    autoBonusLoopRunning = false
+end
+
+-- =====================================================================
 -- GUI
 -- =====================================================================
 local existing = (CoreGui and CoreGui:FindFirstChild(SETTINGS.Name))
@@ -498,6 +555,7 @@ CloseBtn.MouseButton1Click:Connect(function()
     ScriptSettings.AutoFarmEnabled    = false
     ScriptSettings.AutoCollectEnabled = false
     ScriptSettings.AutoUpgradeEnabled = false
+    ScriptSettings.AutoBonusEnabled   = false
     ScreenGui:Destroy()
 end)
 
@@ -840,10 +898,10 @@ local function CreateTab(name, title)
     return page
 end
 
-local homeTab     = CreateTab("Home",     "Home")
-local autoFarmTab = CreateTab("AutoFarm", "AutoFarm")
+local homeTab     = CreateTab("Home",       "Home")
+local autoFarmTab = CreateTab("Automation", "Automation")
 local baseTab     = CreateTab("BaseFunction", "Base Function")
-local configTab   = CreateTab("Config",   "Config")
+local configTab   = CreateTab("Config",     "Config")
 
 -- =====================================================================
 -- HOME TAB
@@ -872,7 +930,7 @@ subtitle.Parent            = homeTab
 local hint = Instance.new("TextLabel")
 hint.Size              = UDim2.new(1, -20, 0, 40)
 hint.BackgroundTransparency = 1
-hint.Text              = "Open the AutoFarm tab to start. Press " ..
+hint.Text              = "Open the Automation tab to start. Press " ..
                           tostring(SETTINGS.ToggleKey):gsub("Enum.KeyCode.", "") ..
                           " to toggle the menu."
 hint.TextColor3        = COLORS.TextDark
@@ -884,7 +942,7 @@ hint.TextWrapped       = true
 hint.Parent            = homeTab
 
 -- =====================================================================
--- AUTOFARM TAB
+-- AUTOMATION TAB (AutoFarm + AutoBonus)
 -- =====================================================================
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Size              = UDim2.new(1, -10, 0, 25)
@@ -948,6 +1006,30 @@ infoLabel.TextXAlignment    = Enum.TextXAlignment.Left
 infoLabel.TextYAlignment    = Enum.TextYAlignment.Top
 infoLabel.TextWrapped       = true
 infoLabel.Parent            = autoFarmTab
+
+local autoBonusToggle
+autoBonusToggle = CreateToggle(autoFarmTab, "AutoBonus (claim level-up button)", ScriptSettings.AutoBonusEnabled,
+    function()
+        ScriptSettings.AutoBonusEnabled = true
+        notify("AutoBonus enabled", false)
+        task.spawn(autoBonusLoop)
+    end,
+    function()
+        ScriptSettings.AutoBonusEnabled = false
+        notify("AutoBonus disabled", false)
+    end)
+
+local autoBonusInfoLabel = Instance.new("TextLabel")
+autoBonusInfoLabel.Size                  = UDim2.new(1, -10, 0, 30)
+autoBonusInfoLabel.BackgroundTransparency = 1
+autoBonusInfoLabel.Text                  = "AutoBonus clicks the level-up bonus button when it appears."
+autoBonusInfoLabel.TextColor3            = COLORS.TextDark
+autoBonusInfoLabel.Font                  = Enum.Font.Gotham
+autoBonusInfoLabel.TextSize              = 12
+autoBonusInfoLabel.TextXAlignment        = Enum.TextXAlignment.Left
+autoBonusInfoLabel.TextYAlignment        = Enum.TextYAlignment.Top
+autoBonusInfoLabel.TextWrapped           = true
+autoBonusInfoLabel.Parent                = autoFarmTab
 
 -- =====================================================================
 -- BASE FUNCTION TAB
@@ -1113,6 +1195,7 @@ local function createConfig(name)
         AutoCollectEnabled     = ScriptSettings.AutoCollectEnabled,
         AutoUpgradeEnabled     = ScriptSettings.AutoUpgradeEnabled,
         AutoUpgradePlace       = ScriptSettings.AutoUpgradePlace,
+        AutoBonusEnabled       = ScriptSettings.AutoBonusEnabled,
     }
     return saveCfg(name, data)
 end
@@ -1125,6 +1208,7 @@ local function applySettingsToUI()
     if autoCollectToggle   then autoCollectToggle.setValue(ScriptSettings.AutoCollectEnabled, true) end
     if autoUpgradeToggle   then autoUpgradeToggle.setValue(ScriptSettings.AutoUpgradeEnabled, true) end
     if upgradePlaceStepper then upgradePlaceStepper.setValue(ScriptSettings.AutoUpgradePlace, true) end
+    if autoBonusToggle     then autoBonusToggle.setValue(ScriptSettings.AutoBonusEnabled, true) end
     updateStatusLabel()
 end
 
@@ -1140,6 +1224,7 @@ local function loadConfig(name)
     local desiredFarm    = data.AutoFarmEnabled    == true
     local desiredCollect = data.AutoCollectEnabled == true
     local desiredUpgrade = data.AutoUpgradeEnabled == true
+    local desiredBonus   = data.AutoBonusEnabled   == true
 
     applySettingsToUI()
 
@@ -1173,6 +1258,15 @@ local function loadConfig(name)
     elseif (not desiredUpgrade) and ScriptSettings.AutoUpgradeEnabled then
         ScriptSettings.AutoUpgradeEnabled = false
         if autoUpgradeToggle then autoUpgradeToggle.setValue(false, true) end
+    end
+
+    if desiredBonus and not ScriptSettings.AutoBonusEnabled then
+        ScriptSettings.AutoBonusEnabled = true
+        if autoBonusToggle then autoBonusToggle.setValue(true, true) end
+        task.spawn(autoBonusLoop)
+    elseif (not desiredBonus) and ScriptSettings.AutoBonusEnabled then
+        ScriptSettings.AutoBonusEnabled = false
+        if autoBonusToggle then autoBonusToggle.setValue(false, true) end
     end
 
     return true
@@ -1448,6 +1542,7 @@ ScreenGui.Destroying:Connect(function()
     ScriptSettings.AutoFarmEnabled    = false
     ScriptSettings.AutoCollectEnabled = false
     ScriptSettings.AutoUpgradeEnabled = false
+    ScriptSettings.AutoBonusEnabled   = false
 end)
 
 print("[Kick a Lucky] AutoFarm menu loaded. Press " ..
