@@ -402,15 +402,22 @@ local function autoBonusLoop()
     while ScriptSettings.AutoBonusEnabled do
         local ku = getKickUpgradesOrNil()
         if ku then
-            -- Брутфорс: жмём все GuiButton под KickUpgrades, которые реально видны и Active.
-            -- Фейковая кнопка-приманка обычно либо скрыта, либо не имеет рабочего обработчика.
+            -- KickUpgrades.Bonus — фейковая кнопка-приманка, её и всех её потомков скипаем.
+            local fakeRoot = ku:FindFirstChild("Bonus")
+            -- Брутфорс: жмём все остальные GuiButton под KickUpgrades, которые реально видны и Active.
             for _, d in ipairs(ku:GetDescendants()) do
                 if d:IsA("GuiButton") and d.Active and isEffectivelyVisible(d) then
-                    clickGuiButton(d)
+                    local isFake = false
+                    if fakeRoot then
+                        isFake = (d == fakeRoot) or d:IsDescendantOf(fakeRoot)
+                    end
+                    if not isFake then
+                        clickGuiButton(d)
+                    end
                 end
             end
         end
-        task.wait(0.3)
+        task.wait(0.01)
     end
     autoBonusLoopRunning = false
 end
